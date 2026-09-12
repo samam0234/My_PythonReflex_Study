@@ -1,4 +1,7 @@
+import httpx
 import reflex as rx
+
+EXTERNAL_API_BASE_URL = "http://127.0.0.1:8001"
 
 
 class State(rx.State):
@@ -60,6 +63,40 @@ class State(rx.State):
         for fruit in self.fruits:
             if fruit["id"] == fruit_id:
                 fruit["in_stock"] = not fruit["in_stock"]
+
+    # --- study6: 별도로 떠 있는 FastAPI(외부 API) 연동 ---
+    fruit_fact: str = ""
+    fruit_fact_loading: bool = False
+
+    @rx.event
+    async def load_fruit_fact(self):
+        """`external_api/`(별도 FastAPI 프로세스, 8001번 포트)에 HTTP 요청을
+        보내 지금 보고 있는 과일의 잡학 정보를 가져온다.
+
+        `async def` + 중간에 `yield`를 쓰면, 그 시점까지 바뀐 State를
+        먼저 브라우저로 보내고(로딩중 표시) 나머지 코드를 계속 실행할 수
+        있다. axios/fetch 요청 중 "로딩 스피너"를 보여주던 패턴과 목적이
+        같다.
+        """
+        self.fruit_fact_loading = True
+        self.fruit_fact = ""
+        yield  # 여기까지의 상태(로딩중)를 먼저 브라우저에 반영
+
+        name = self.current_fruit["name"]
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{EXTERNAL_API_BASE_URL}/api/fruit-fact/{name}", timeout=5
+                )
+                response.raise_for_status()
+                self.fruit_fact = response.json()["fact"]
+        except httpx.HTTPError:
+            self.fruit_fact = (
+                "정보를 가져오지 못했습니다. "
+                "external_api 서버(8001번 포트)가 실행 중인지 확인하세요."
+            )
+        finally:
+            self.fruit_fact_loading = False
 
     @rx.var
     def current_fruit(self) -> dict:

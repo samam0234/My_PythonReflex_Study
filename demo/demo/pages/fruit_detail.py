@@ -24,6 +24,13 @@ def fruit_detail() -> rx.Component:
                 ),
                 rx.text("해당 id의 과일을 찾을 수 없습니다."),
             ),
+            rx.button(
+                "재미있는 사실 보기 (외부 API 호출)",
+                on_click=State.load_fruit_fact,
+                loading=State.fruit_fact_loading,
+                variant="surface",
+            ),
+            rx.cond(State.fruit_fact != "", rx.text(State.fruit_fact)),
             rx.link(rx.button("← 목록으로"), href="/"),
             spacing="5",
             justify="center",
