@@ -1,26 +1,34 @@
 import reflex as rx
 
+from ..state import State
 from .fruit_badge import fruit_badge
 
 
 def fruit_card(fruit: dict) -> rx.Component:
-    """과일 하나를 보여주는 카드. React의 `FruitCard({ fruit })`에 대응한다.
+    """과일 하나를 보여주는 카드.
 
-    `fruit` 파라미터가 props 역할이다. 지금 단계(study1)에서는 `fruit`이
-    그냥 평범한 Python dict이므로, 내부에서 `fruit["name"]`처럼 일반
-    Python 문법으로 값을 꺼내 써도 문제가 없다. study2에서 이 값이
-    State(서버 상태)로 바뀌면 이 접근 방식이 왜 더 이상 통하지 않는지
-    확인한다.
+    study1과 함수 시그니처는 똑같이 `fruit: dict`이지만, study2부터는
+    `rx.foreach`가 이 함수를 "리스트의 각 항목에 대해 반복 호출"하기
+    때문에, 함수 안에서 받는 `fruit`은 실제 dict가 아니라 **아직 값이
+    정해지지 않은 Var**다. 그래서 `fruit["in_stock"]`으로 값을 꺼내는
+    문법은 똑같이 쓰지만, 그 값으로 Python `if`를 직접 쓸 수는 없고
+    `rx.cond`를 거쳐야 한다.
     """
     return rx.list_item(
         rx.hstack(
             rx.text(
                 fruit["name"],
-                text_decoration="line-through" if not fruit["in_stock"] else "none",
+                text_decoration=rx.cond(fruit["in_stock"], "none", "line-through"),
             ),
             fruit_badge(
-                "재고 있음" if fruit["in_stock"] else "품절",
-                soldout=not fruit["in_stock"],
+                rx.cond(fruit["in_stock"], "재고 있음", "품절"),
+                soldout=~fruit["in_stock"],
+            ),
+            rx.button(
+                "토글",
+                size="1",
+                variant="outline",
+                on_click=State.toggle_stock(fruit["id"]),
             ),
             justify="between",
             width="100%",
