@@ -62,6 +62,22 @@ class State(rx.State):
                 fruit["in_stock"] = not fruit["in_stock"]
 
     @rx.var
+    def current_fruit(self) -> dict:
+        """동적 라우트 `/fruit/[fruit_id]`에서 쓰는 파생 값.
+
+        `self.fruit_id`는 우리가 선언한 적 없는 속성이다. Reflex가
+        `app.add_page(fruit_detail, route="/fruit/[fruit_id]")`로 페이지를
+        등록할 때, 대괄호 세그먼트 이름과 같은 이름의 문자열 속성을
+        State에 자동으로 만들어준다 (Vue Router/React Router의 라우트
+        파라미터와 같은 개념 — Reflex는 이걸 URL 파라미터가 아니라
+        "State 속성"으로 노출한다).
+        """
+        for fruit in self.fruits:
+            if str(fruit["id"]) == self.fruit_id:
+                return fruit
+        return {"id": 0, "name": "", "in_stock": False}
+
+    @rx.var
     def in_stock_count(self) -> int:
         """파생 값(ComputedVar). Vue의 computed, React의 파생 state에 대응한다.
 

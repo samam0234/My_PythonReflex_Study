@@ -25,6 +25,10 @@ def fruit_card(fruit: dict) -> rx.Component:
                 soldout=~fruit["in_stock"],
             ),
             rx.hstack(
+                rx.link(
+                    rx.button("상세", size="1", variant="soft"),
+                    href="/fruit/" + fruit["id"].to_string(),
+                ),
                 rx.button(
                     "토글",
                     size="1",
