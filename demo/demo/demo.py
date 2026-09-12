@@ -10,6 +10,7 @@ from rxconfig import config
 
 from .components.fruit_list import fruit_list_practice
 from .pages.fruit_detail import fruit_detail
+from .state import State
 
 
 def index() -> rx.Component:
@@ -17,7 +18,7 @@ def index() -> rx.Component:
         rx.color_mode.button(position="top-right"),
         rx.vstack(
             rx.heading("Reflex 학습 데모", size="9"),
-            rx.text(f"{config.app_name} 프로젝트 — study6 실습", size="5"),
+            rx.text(f"{config.app_name} 프로젝트 — study7 실습", size="5"),
             fruit_list_practice(),
             spacing="6",
             justify="center",
@@ -27,5 +28,5 @@ def index() -> rx.Component:
 
 
 app = rx.App()
-app.add_page(index, route="/")
-app.add_page(fruit_detail, route="/fruit/[fruit_id]")
+app.add_page(index, route="/", on_load=State.load_fruits)
+app.add_page(fruit_detail, route="/fruit/[fruit_id]", on_load=State.load_fruits)

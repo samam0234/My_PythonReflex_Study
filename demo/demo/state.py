@@ -1,22 +1,50 @@
 import httpx
 import reflex as rx
+import sqlmodel
+
+from .models import FruitRecord
 
 EXTERNAL_API_BASE_URL = "http://127.0.0.1:8001"
 
+SEED_FRUITS = [
+    {"name": "사과", "in_stock": True},
+    {"name": "바나나", "in_stock": False},
+    {"name": "포도", "in_stock": True},
+]
+
 
 class State(rx.State):
-    """앱 전역 상태. study1의 고정 Python 리스트가 이제 이 클래스 안으로 들어와
-    진짜 "상태"가 된다 — 값이 바뀌면 화면이 자동으로 다시 그려진다.
+    """앱 전역 상태.
+
+    study6까지 `fruits`는 서버 프로세스가 재시작되면 초기값으로 리셋되는
+    "메모리 상의 데이터"였다. study7부터는 진짜 데이터베이스(SQLite)에서
+    읽고 쓴다. `fruits`는 여전히 `list[dict]`이지만, 이제 이 값은
+    DB 조회 결과를 그대로 담아두는 **캐시**일 뿐이고, 진짜 원본은
+    `reflex.db` 파일 안에 있다.
     """
 
-    fruits: list[dict] = [
-        {"id": 1, "name": "사과", "in_stock": True},
-        {"id": 2, "name": "바나나", "in_stock": False},
-        {"id": 3, "name": "포도", "in_stock": True},
-    ]
+    fruits: list[dict] = []
 
     new_fruit_name: str = ""
     form_error: str = ""
+
+    @rx.event
+    def load_fruits(self):
+        """DB에서 과일 목록을 읽어와 `self.fruits`에 채운다.
+
+        페이지의 `on_load`에 연결해서, 그 페이지가 열릴 때마다(=브라우저가
+        접속할 때마다) 최신 DB 상태를 다시 읽어오도록 한다.
+        """
+        with rx.session() as session:
+            records = session.exec(sqlmodel.select(FruitRecord)).all()
+            if not records:
+                # 최초 실행(테이블은 있지만 비어있음): 시드 데이터를 넣는다.
+                records = [FruitRecord(**seed) for seed in SEED_FRUITS]
+                session.add_all(records)
+                session.commit()
+                for record in records:
+                    session.refresh(record)
+            self.fruits = [record.model_dump() for record in records]
 
     @rx.event
     def set_new_fruit_name(self, value: str):
@@ -31,7 +59,7 @@ class State(rx.State):
 
     @rx.event
     def add_fruit(self):
-        """Create — 입력창의 이름으로 새 과일을 추가한다 (서버 측 검증 포함)."""
+        """Create — 입력창의 이름으로 새 과일을 DB에 추가한다 (서버 측 검증 포함)."""
         name = self.new_fruit_name.strip()
         if not name:
             self.form_error = "이름을 입력하세요."
@@ -42,27 +70,39 @@ class State(rx.State):
         if any(f["name"] == name for f in self.fruits):
             self.form_error = f"'{name}'은(는) 이미 목록에 있습니다."
             return
-        next_id = max((f["id"] for f in self.fruits), default=0) + 1
-        self.fruits.append({"id": next_id, "name": name, "in_stock": True})
+        with rx.session() as session:
+            session.add(FruitRecord(name=name, in_stock=True))
+            session.commit()
         self.new_fruit_name = ""
         self.form_error = ""
+        self.load_fruits()
 
     @rx.event
     def remove_fruit(self, fruit_id: int):
-        """Delete — id가 일치하는 과일을 목록에서 제거한다."""
-        self.fruits = [f for f in self.fruits if f["id"] != fruit_id]
+        """Delete — id가 일치하는 과일을 DB에서 제거한다."""
+        with rx.session() as session:
+            record = session.get(FruitRecord, fruit_id)
+            if record is not None:
+                session.delete(record)
+                session.commit()
+        self.load_fruits()
 
     @rx.event
     def toggle_stock(self, fruit_id: int):
-        """id가 일치하는 과일의 재고 여부를 뒤집는다.
+        """id가 일치하는 과일의 재고 여부를 DB에서 직접 뒤집는다.
 
-        self.fruits는 State가 감시하는 리스트이므로, 그 안의 dict 항목을
-        직접 수정(`fruit["in_stock"] = ...`)해도 Reflex가 변경을 감지해
-        브라우저에 새 값을 보내준다. (Vue의 반응형 배열/객체와 동일한 감각)
+        study2~6에서는 `self.fruits` 리스트를 직접 수정하는 것만으로
+        충분했지만, 이제 `self.fruits`는 DB의 캐시일 뿐이므로 **원본(DB
+        row)을 먼저 바꾸고, 그 다음 `load_fruits()`로 캐시를 새로
+        고친다.**
         """
-        for fruit in self.fruits:
-            if fruit["id"] == fruit_id:
-                fruit["in_stock"] = not fruit["in_stock"]
+        with rx.session() as session:
+            record = session.get(FruitRecord, fruit_id)
+            if record is not None:
+                record.in_stock = not record.in_stock
+                session.add(record)
+                session.commit()
+        self.load_fruits()
 
     # --- study6: 별도로 떠 있는 FastAPI(외부 API) 연동 ---
     fruit_fact: str = ""
