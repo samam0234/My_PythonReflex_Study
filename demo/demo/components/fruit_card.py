@@ -24,11 +24,21 @@ def fruit_card(fruit: dict) -> rx.Component:
                 rx.cond(fruit["in_stock"], "재고 있음", "품절"),
                 soldout=~fruit["in_stock"],
             ),
-            rx.button(
-                "토글",
-                size="1",
-                variant="outline",
-                on_click=State.toggle_stock(fruit["id"]),
+            rx.hstack(
+                rx.button(
+                    "토글",
+                    size="1",
+                    variant="outline",
+                    on_click=State.toggle_stock(fruit["id"]),
+                ),
+                rx.button(
+                    "삭제",
+                    size="1",
+                    variant="outline",
+                    color_scheme="red",
+                    on_click=State.remove_fruit(fruit["id"]),
+                ),
+                spacing="2",
             ),
             justify="between",
             width="100%",

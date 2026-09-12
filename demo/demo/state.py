@@ -12,6 +12,33 @@ class State(rx.State):
         {"id": 3, "name": "포도", "in_stock": True},
     ]
 
+    new_fruit_name: str = ""
+
+    @rx.event
+    def set_new_fruit_name(self, value: str):
+        """입력창의 값이 바뀔 때마다 실행된다 (Controlled Component).
+
+        Vue의 `v-model`, React의 `value + onChange` 조합과 같은 역할을
+        하지만, 여기서는 값을 들고 있는 쪽이 브라우저가 아니라 **서버의
+        State**라는 점이 다르다.
+        """
+        self.new_fruit_name = value
+
+    @rx.event
+    def add_fruit(self):
+        """Create — 입력창의 이름으로 새 과일을 추가한다."""
+        name = self.new_fruit_name.strip()
+        if not name:
+            return
+        next_id = max((f["id"] for f in self.fruits), default=0) + 1
+        self.fruits.append({"id": next_id, "name": name, "in_stock": True})
+        self.new_fruit_name = ""
+
+    @rx.event
+    def remove_fruit(self, fruit_id: int):
+        """Delete — id가 일치하는 과일을 목록에서 제거한다."""
+        self.fruits = [f for f in self.fruits if f["id"] != fruit_id]
+
     @rx.event
     def toggle_stock(self, fruit_id: int):
         """id가 일치하는 과일의 재고 여부를 뒤집는다.
