@@ -6,6 +6,11 @@ from .models import FruitRecord
 
 EXTERNAL_API_BASE_URL = "http://127.0.0.1:8001"
 
+# study8 실습용 데모 계정. 타입 어노테이션이 없는 클래스 속성이라
+# Reflex가 State 값(Var)으로 취급하지 않는다 — 그냥 서버 쪽 상수다.
+# 실제 서비스에서는 반드시 DB + 비밀번호 해시(passlib 등)를 써야 한다.
+DEMO_USERS = {"demo": "reflex123"}
+
 SEED_FRUITS = [
     {"name": "사과", "in_stock": True},
     {"name": "바나나", "in_stock": False},
@@ -137,6 +142,53 @@ class State(rx.State):
             )
         finally:
             self.fruit_fact_loading = False
+
+    # --- study8: 로그인 상태 관리 (보호된 페이지) ---
+    username_input: str = ""
+    password_input: str = ""
+    login_error: str = ""
+    is_logged_in: bool = False
+    current_username: str = ""
+
+    @rx.event
+    def set_username_input(self, value: str):
+        self.username_input = value
+        self.login_error = ""
+
+    @rx.event
+    def set_password_input(self, value: str):
+        self.password_input = value
+        self.login_error = ""
+
+    @rx.event
+    def login(self):
+        """아이디/비밀번호를 확인하고, 맞으면 `/admin`으로 이동시킨다."""
+        username = self.username_input.strip()
+        if DEMO_USERS.get(username) != self.password_input:
+            self.login_error = "아이디 또는 비밀번호가 올바르지 않습니다."
+            return
+        self.is_logged_in = True
+        self.current_username = username
+        self.password_input = ""
+        return rx.redirect("/admin")
+
+    @rx.event
+    def logout(self):
+        self.is_logged_in = False
+        self.current_username = ""
+        return rx.redirect("/login")
+
+    @rx.event
+    def require_login(self):
+        """보호된 페이지의 `on_load`에 연결하는 이벤트 핸들러.
+
+        로그인이 안 되어 있으면 `/login`으로 돌려보낸다. Vue Router의
+        네비게이션 가드, React Router의 Protected Route와 같은 역할을
+        "페이지 진입 시 실행되는 이벤트 핸들러 안의 `return rx.redirect(...)`"
+        로 구현한 것이다.
+        """
+        if not self.is_logged_in:
+            return rx.redirect("/login")
 
     @rx.var
     def current_fruit(self) -> dict:
