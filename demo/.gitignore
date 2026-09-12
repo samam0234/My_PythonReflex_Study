@@ -4,3 +4,6 @@
 assets/external/
 .states
 __pycache__/
+.env
+*.zip
+

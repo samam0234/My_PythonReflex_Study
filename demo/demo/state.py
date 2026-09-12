@@ -1,10 +1,16 @@
+import os
+
 import httpx
 import reflex as rx
 import sqlmodel
 
 from .models import FruitRecord
 
-EXTERNAL_API_BASE_URL = "http://127.0.0.1:8001"
+# rx.Config 필드(db_url, cors_allowed_origins 등)는 REFLEX_* 환경변수로
+# 자동 덮어쓰기 되지만, 이런 "우리 앱만의" 값은 os.environ에서 직접 읽는다.
+# rxconfig.py의 env_file=".env" 설정 덕분에, .env 파일에 EXTERNAL_API_BASE_URL을
+# 적어두면 여기서도 그대로 읽힌다.
+EXTERNAL_API_BASE_URL = os.environ.get("EXTERNAL_API_BASE_URL", "http://127.0.0.1:8001")
 
 # study8 실습용 데모 계정. 타입 어노테이션이 없는 클래스 속성이라
 # Reflex가 State 값(Var)으로 취급하지 않는다 — 그냥 서버 쪽 상수다.

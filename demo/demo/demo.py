@@ -25,7 +25,7 @@ def index() -> rx.Component:
         ),
         rx.vstack(
             rx.heading("Reflex 학습 데모", size="9"),
-            rx.text(f"{config.app_name} 프로젝트 — study8 실습", size="5"),
+            rx.text(f"{config.app_name} 프로젝트 — study9 실습", size="5"),
             fruit_list_practice(),
             spacing="6",
             justify="center",
