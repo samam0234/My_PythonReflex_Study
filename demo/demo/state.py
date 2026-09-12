@@ -13,6 +13,7 @@ class State(rx.State):
     ]
 
     new_fruit_name: str = ""
+    form_error: str = ""
 
     @rx.event
     def set_new_fruit_name(self, value: str):
@@ -23,16 +24,25 @@ class State(rx.State):
         State**라는 점이 다르다.
         """
         self.new_fruit_name = value
+        self.form_error = ""
 
     @rx.event
     def add_fruit(self):
-        """Create — 입력창의 이름으로 새 과일을 추가한다."""
+        """Create — 입력창의 이름으로 새 과일을 추가한다 (서버 측 검증 포함)."""
         name = self.new_fruit_name.strip()
         if not name:
+            self.form_error = "이름을 입력하세요."
+            return
+        if len(name) > 10:
+            self.form_error = "이름은 10자 이내로 입력하세요."
+            return
+        if any(f["name"] == name for f in self.fruits):
+            self.form_error = f"'{name}'은(는) 이미 목록에 있습니다."
             return
         next_id = max((f["id"] for f in self.fruits), default=0) + 1
         self.fruits.append({"id": next_id, "name": name, "in_stock": True})
         self.new_fruit_name = ""
+        self.form_error = ""
 
     @rx.event
     def remove_fruit(self, fruit_id: int):
