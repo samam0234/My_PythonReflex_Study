@@ -68,6 +68,21 @@ app.add_page(index)
 
 추가 버튼 세 번 → 개수 3, 표시 전환 → 목록 숨김, 다시 전환 → 기존 세 항목 유지가 기대 결과다. 프로세스를 완전히 재시작한 뒤 목록이 초기화되는 것도 확인한다.
 
+### 노션의 Todo 예제
+
+`demo/` 실행 후 `/study3/todo`로 이동한다. 빈 입력을 제출해 오류를 확인하고 할 일을 추가·완료 전환·삭제한다. 완료 전환으로 남은 항목 수가 즉시 바뀌며, 서버를 재시작하면 메모리 목록이 초기화된다. [실제 Todo 코드](demo/demo/lessons/todo.py)
+
+```python
+@rx.event
+def toggle(self, item_id: int):
+    for item in self.items:
+        if item["id"] == item_id:
+            item["done"] = not item["done"]
+            return
+```
+
+이벤트의 `item_id`는 행 인덱스 대신 안정적인 ID다. 서버의 Python 반복문에서 일치하는 딕셔너리를 찾고 bool을 반전한다. Reflex가 중첩 변경을 감지하면 `remaining`이 다시 계산된다. 화면은 `rx.foreach`로 행을 만들고 `rx.cond`로 상태를 표시한다.
+
 ## 오류 노트
 
 - `Cannot convert Var to bool`: 컴포넌트 안의 Python `if`, `and`, `not` 사용 위치를 확인한다. Var에는 `rx.cond`, `&`, `~`를 사용한다.
@@ -81,6 +96,7 @@ app.add_page(index)
 - ☐ [노션 상태 흐름] 대입과 list/dict 직접 변경의 감지를 확인한다.
 - ☐ [노션 제약] State Var에 `rx.cond`, `rx.foreach`, `~`를 사용한다.
 - ☐ [노션 제약] 재시작 시 State 초기화와 DB 영속성의 필요를 설명한다.
+- ☐ [노션 예제] Todo 빈 입력·추가·완료 전환·삭제와 남은 개수 갱신을 실행한다.
 - ☐ 공개 상태에 비밀 값이 없는지 확인한다.
 
 ## 다음 단계 연결
