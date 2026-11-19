@@ -2,9 +2,10 @@
 
 ## 저장소와 현재 요청
 
-Python Reflex 0.9.11 학습 과정이다. 사용자가 지정한 새 순서의 `study0.md`~`study18.md`, `studyMidpoint.md`, `studyFinal.md`가 기준이다. 다른 프레임워크와 비교하거나 통합하지 않는다. 과거 코드 주석의 단원 번호보다 루트 문서를 우선한다.
+Python Reflex 0.9.11 학습 과정이다. 사용자가 지정한 새 순서의 `study0.md`~`study18.md`, `studyMidpoint.md`, `studyFinal.md`가 기준이다. 기본 과정은 Reflex 단독으로 유지한다. 사용자가 승인한 두 확장 과제는 study4의 Vue·React 비교와 study6의 FastAPI 게시판 HTTP 연동이다. 과거 코드 주석의 단원 번호보다 루트 문서를 우선한다.
 
 - `demo/`: 독립된 Reflex 단원별 화면. study1~7, study11, study13의 실행 예제.
+- `backend/`: 독립 FastAPI 게시판과 과일 API. Reflex 연결 명령은 해당 README에 있다.
 - `midpoint/`: study0~10 기능만 쓰는 데모 로그인 게시판.
 - `project/`: study11~18을 연결한 최종 게시판. DB 사용자·만료 세션·소유권·페이지네이션·AI·MCP.
 - `tests/`: 단위·DB·비동기·migration·브라우저 테스트.

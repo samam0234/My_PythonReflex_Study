@@ -16,6 +16,6 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["project", "midpoint", "demo"]
+pythonpath = ["project", "midpoint", "demo", "."]
 asyncio_mode = "auto"
 markers = ["e2e: 실행 중인 Reflex 서버를 검증하는 브라우저 테스트"]

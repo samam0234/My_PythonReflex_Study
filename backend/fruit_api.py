@@ -4,7 +4,7 @@ Reflex 앱과는 완전히 별개의 FastAPI 프로세스로 실행한다. 회�
 운영 중인 FastAPI/Django API가 있고, 그 API를 Reflex 이벤트 핸들러에서
 호출하는 상황을 흉내 낸 것이다.
 
-실행: uvicorn external_api.main:app --port 8001
+루트에서 실행: python -m uvicorn backend.fruit_api:app --port 8001
 """
 
 from fastapi import FastAPI

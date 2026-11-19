@@ -5,10 +5,11 @@
 | 앱 | 용도 | 실행 화면 |
 |---|---|---|
 | [demo/](demo/) | 독립된 단원별 UI·DB·인증·비동기·차트 실습 | `/study1`~`/study7`, `/study11`, `/study13` |
+| [backend/](backend/README.md) | FastAPI 공통 게시판 API와 과일 API | 게시판 `/api-docs` (8011번 포트) |
 | [midpoint/](midpoint/) | study0~10 기능만 사용하는 기초 게시판 | 목록·로그인·상세·작성·수정 |
 | [project/](project/) | 심화 게시판 | DB 인증·권한·검색·페이지네이션·AI·MCP·운영 지표 |
 
-앱은 한 번에 하나씩 실행하면 기본 포트 3000/8000을 사용할 수 있다. `demo`와 `midpoint`는 로컬 학습용 계정·권한 예제다. 최종 앱은 DB 계정·비밀번호 해시·만료 세션을 사용한다.
+Reflex 앱은 한 번에 하나씩 실행하면 기본 포트 3000/8000을 사용할 수 있다. `demo`와 `midpoint`는 로컬 학습용 계정·권한 예제다. 최종 앱은 DB 계정·비밀번호 해시·만료 세션을 사용한다.
 
 ## 빠른 시작 — PowerShell
 
@@ -51,7 +52,7 @@ reflex run
 | [study3](study3.md) | State·Var | [demo/demo/lessons/data.py](demo/demo/lessons/data.py) |
 | [study4](study4.md) | 동적 라우팅 | [demo/demo/lessons/routing.py](demo/demo/lessons/routing.py) |
 | [study5](study5.md) | 폼·검증 | [demo/demo/lessons/form.py](demo/demo/lessons/form.py) |
-| [study6](study6.md) | DB CRUD | [demo/demo/lessons/db_state.py](demo/demo/lessons/db_state.py) |
+| [study6](study6.md) | DB CRUD·공통 API v1 연동 | [DB 실습](demo/demo/lessons/db_state.py), [FastAPI 게시판](backend/main.py) |
 | [study7](study7.md) | 학습용 인증 | [demo/demo/lessons/auth.py](demo/demo/lessons/auth.py) |
 | [study8](study8.md) | 구조·환경변수 | [project/project/settings.py](project/project/settings.py) |
 | [study9](study9.md) | 기초 테스트 | [tests/test_midpoint_validation.py](tests/test_midpoint_validation.py) |
@@ -85,6 +86,8 @@ python tools/verify_app.py --app midpoint --mode prod
 python tools/verify_app.py --app project --mode prod
 python tools/benchmark.py
 python tools/check_deploy.py
+python tools/verify_board_v1.py  # backend/requirements.txt 설치 필요
+python tools/verify_docker.py  # Docker 엔진, 비어 있는 로컬 443 필요
 ```
 
 `verify_app.py`는 임시 DB·새 포트·유료 API 키가 없는 환경에서 migration→필요한 로컬 계정→prod export→단일 포트 서버→Chromium→프로세스 정리를 수행한다. E2E를 직접 실행하면 `REFLEX_E2E_URL`이 없을 때 의도적으로 건너뛴다.
@@ -93,17 +96,20 @@ python tools/check_deploy.py
 
 | 검사 | 결과 |
 |---|---|
-| 단위·DB·동시성·AI mock·실제 MCP·migration·복원·State 직렬화 | 59개 통과 |
-| demo prod 빌드·브라우저 | 2개 통과 |
+| 단위·DB·동시성·AI mock·실제 MCP·migration·복원·State 직렬화 | 60개 통과 |
+| demo prod 빌드·브라우저 | 3개 통과 |
 | midpoint prod 빌드·브라우저 | 1개 통과 |
-| project prod 빌드·브라우저 | 4개 통과 |
+| project prod 빌드·브라우저 | 5개 통과 |
 | Ruff·포맷·Pyright | 로컬 통과 |
 | Compose 해석·배포 셸·CI 의존성 | 로컬 통과 |
+| FastAPI 공통 API v1 | 계약 테스트와 8001 포트 Reflex 브라우저 연동 통과 |
+| Docker Linux 이미지·로컬 HTTPS/WSS | 비루트 실행, migration, 로그인·글 작성, 백업 무결성, 컨테이너 교체와 DB 보존 통과 |
+| Chromium JS 전송량 | 목록 244,862바이트 / 대시보드 365,083바이트. 같은 prod 빌드와 새 브라우저 컨텍스트에서 측정 |
 | 성능 1,000행, 예열 3회·30회 측정 | [study12](study12.md)의 p95·JSON 크기 표 |
 
-브라우저는 로그인·CRUD·타인 수정 URL·로그아웃·잘못된 ID·페이지네이션·검색·단원 State/폼/DB/캐시·차트 필터·실제 MCP를 확인했다. 토큰 직렬화 제외·만료/폐기·경쟁 요청량·이전 revision·백업 복원은 서비스 테스트로 검증한다. 로그·스크린샷·성능 JSON은 git 제외 `artifacts/`에 저장한다.
+추가 브라우저 검사는 Todo의 빈 입력·추가·완료·삭제와 모의 HTTP 401의 세 결과를 확인한다. 브라우저는 로그인·CRUD·타인 수정 URL·로그아웃·잘못된 ID·페이지네이션·검색·단원 State/폼/DB/캐시·차트 필터·실제 MCP를 확인했다. 토큰 직렬화 제외·만료/폐기·경쟁 요청량·이전 revision·백업 복원은 서비스 테스트로 검증한다. 로그·스크린샷·성능 JSON은 git 제외 `artifacts/`에 저장한다.
 
-GitHub Actions **파일**과 로컬 동등 검사를 구현했다. 원격 Actions 실행은 아직 하지 않았다. Docker CLI는 있지만 엔진이 꺼져 있어 이미지 실행을 검증하지 않았다. 외부 VM·TLS·GHCR 게시·SSH 배포·롤백과 실제 모델 API 호출도 미실행이다. 배포 설정과 준비물은 [deploy/README](deploy/README.md)에 있다.
+Docker는 로컬 443과 Caddy 테스트 인증서에서 실제 이미지로 검증했다. 외부 VM·공인 TLS·GHCR 게시·SSH 배포·다른 버전으로의 롤백, 원격 Actions·외부 모니터링, 실제 모델 API 호출은 운영 환경 또는 계정 설정 후 확인한다. 배포 설정과 준비물은 [deploy/README](deploy/README.md)에 있다.
 
 ## 배포·설정·의존성
 
@@ -141,17 +147,18 @@ GitHub Actions **파일**과 로컬 동등 검사를 구현했다. 원격 Action
 | Dockerfile·migration 후 실행, Cloud 선택 경로 | study10·17 |
 | 실제 활용: 기본 8000 충돌을 8001로 분리 | study0·8 |
 | 실제 활용: 중복 가드·yield 로딩·비동기 대기 | study11·18 |
-| 실제 활용: 401 refresh 한 번 재시도·세션 만료 | study11 오류 노트·체크리스트, 단독 앱 적용 범위 표시 |
+| 실제 활용: 401 이후 한 번 갱신·재조회 및 실패 처리 | study11, [HTTP 모의 실습](demo/demo/lessons/refresh_lab.py) |
+| Reflex Todo 예제 | study3, [Todo](demo/demo/lessons/todo.py), `/study3/todo` |
 | demo·midpoint·project·GitHub 위치 | 이 문서의 구현 경로·과거 기록 안내 |
-| 비교표·다른 프레임워크 선행 학습·비교 과제 | 사용자 “비교하지 말기”에 따라 미포함 |
-| 외부 공통 게시판 API 연결·조합 코스·특정 외부 앱 통합 | 사용자 “통합하지 말기”에 따라 미포함, DB CRUD로 선택 |
+| Vue·React 게시판 비교 과제 | [study4](study4.md)의 실제 라우트 진입 파일 줄 수와 화면 전환 비교 |
+| 외부 공통 게시판 API 연결 과제 | [study6](study6.md)의 FastAPI v1 + Reflex 화면, 계약·브라우저 검증 |
 
-범위 충돌은 다음과 같이 처리했다. 원문의 체크 과제 “같은 게시판을 공통 API 스펙 v1의 FastAPI에 연결해 보기”와 “코드 줄 수와 화면 전환 방식을 Vue·React 게시판과 비교”는 이 코스의 실행 체크리스트로 가져오지 않는다. 노션의 조합 페이지·외부 앱·공통 API 링크는 독립된 코스이므로 따라가서 범위를 확대하지 않았다. 실제 활용 사례의 포트·로딩·오류 복구 원리는 Reflex 단독 예제로 반영했다. 따라서 비교·통합 금지 조건과 양립하는 원문 항목은 모두 대응하며, 충돌 항목은 숨기지 않고 여기에 기록했다.
+추가로 승인된 두 조합 과제는 study4와 study6에 반영했다. 최종 게시판의 기본 실행은 자체 SQLite를 사용하는 Reflex 앱이다. 별도 연동 실습은 `/study6/api-board`에서 활성화하며 API가 제공하는 데이터와 인증을 사용한다. MoodDiary의 포트·로딩·401 재시도는 study8·11에서 재현한다.
 
 노션의 기존 학습 기록과 체크 완료 상태는 **과거 기록**이다. 새 문서의 `☐`는 앞으로 학습자가 검증할 항목이며 기존 완료 표시를 복사하지 않았다. 원문 내용을 그대로 전사하거나 외부 페이지 전체를 구현했다고 주장하지 않는다.
 
 ## 과거 기록과 변경 범위
 
-과거의 study 번호·`demo/external_api/`·과일 단일 화면 예제는 이전 학습 자료다. 새 `demo/demo/demo.py`는 외부 프레임워크 서버를 import·실행하지 않는다. 다른 프레임워크 비교·통합은 새 과정의 실행 대상으로 삼지 않았다.
+Reflex 실습실은 백엔드 전용 폴더 `backend/`에서 실행하는 FastAPI에 HTTP로 연결한다. 두 터미널의 실행 명령은 [백엔드 README](backend/README.md)에 있다. 기본 과정의 앱 실행에는 FastAPI 의존성이 필요 없다.
 
-기존 `study0~10.md`와 `studyFinal.md`는 새 목차로 덮어썼고, `study11~18.md`, `studyMidpoint.md`를 추가했다. 이후 코드 작성 요청에 따라 세 앱·테스트·배포 설정과 설명을 구현 상태에 맞췄다. 커밋·푸시는 수행하지 않았다. 연결된 노션의 학습 기록·설치/State/배포 메모·구성 목록을 실제 코드와 검증 결과로 갱신했다. 기존 비교·조합·활용 기록은 보존하고, 미실행 외부 항목은 완료로 표시하지 않았다.
+기존 `study0~10.md`와 `studyFinal.md`는 새 목차로 덮어썼고, `study11~18.md`, `studyMidpoint.md`를 추가했다. 이후 코드 작성 요청에 따라 세 앱·테스트·배포 설정과 설명을 구현 상태에 맞췄다. 직전 로컬 작업은 `23ace93`까지 커밋했다. 연결된 노션의 학습 기록·설치/State/배포 메모·구성 목록을 실제 코드와 검증 결과로 갱신했다. 기존 비교·조합·활용 기록은 보존하고, 미실행 외부 항목은 완료로 표시하지 않았다.

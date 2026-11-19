@@ -17,7 +17,7 @@
 | 품질 | 기본 검증 | DB·경쟁 요청·비동기·migration·Chromium·CI | `tests/`, `.github/` |
 | 운영 | 수동 실행 | Docker·TLS Compose·백업·배포·롤백 스크립트 | `deploy/` |
 
-앱은 [project/](project/)에 구현했다. 다른 웹 프레임워크와 비교하거나 공통 게시판 API를 통합하지 않는다. 운영 대상은 VM 한 대·앱 한 인스턴스·영속 SQLite이며, 세 앱은 MEMORY State를 명시하며 서버 State 유실 시 재로그인한다. 무중단 다중 인스턴스와 영구 로그인은 제공 범위에 포함하지 않는다.
+앱은 [project/](project/)에 구현했다. Vue·React의 화면 전환 비교와 FastAPI 공통 API 연동은 study4와 study6에서 별도로 다룬다. 운영 대상은 VM 한 대·앱 한 인스턴스·영속 SQLite이며, 세 앱은 MEMORY State를 명시하며 서버 State 유실 시 재로그인한다. 무중단 다중 인스턴스와 영구 로그인은 제공 범위에 포함하지 않는다.
 
 ## 🛠️ 실기(코드·줄별 설명)
 
@@ -120,13 +120,13 @@ reflex run
 | 비밀 | backend 토큰의 State 직렬화 제외·로그 필드 제한·이미지 제외 |
 | 운영 | 스키마 readiness·관리자 `/ops`·온라인 백업·복원 무결성 |
 
-성능 결과와 측정 한계는 [study12](study12.md)에 있다. JSON 크기는 실제 압축 WS 전송량이 아니며, 차트 도입 전후 번들 전송량은 별도 측정 항목이다.
+성능 결과와 측정 한계는 [study12](study12.md)에 있다. JSON 크기는 실제 압축 WS 전송량이 아니며, 목록과 대시보드의 실제 JS 전송량은 각각 244,862바이트와 365,083바이트였다. 차트만의 비용은 별도의 통제 실험 대상이다.
 
 ### Docker·외부 배포
 
 [study17](study17.md)과 [deploy/README](deploy/README.md)를 따른다. 실제 스크립트는 이미지 검증·pull→온라인 백업→앱 중지→migration 1회→readiness 대기 순서다. CI는 모든 앱의 prod E2E 성공 후에만 production 배포 job을 허용한다.
 
-운영에 필요한 것은 보유 도메인·VM·DNS·GHCR 읽기 자격·서버 runtime 비밀 값·검증한 SSH 호스트 키다. 현재 Docker engine이 실행 중이 아니므로 이미지 실행·외부 TLS·SSH 배포·이미지 롤백은 미실행이다. 파일 작성과 로컬 prod 검증을 외부 배포 성공으로 표시하지 않는다.
+운영에 필요한 것은 보유 도메인·VM·DNS·GHCR 읽기 자격·서버 runtime 비밀 값·검증한 SSH 호스트 키다. 로컬 Docker 이미지와 Caddy 테스트 TLS에서 WSS·로그인·글 작성·백업·컨테이너 교체를 확인했다. 외부 TLS·SSH 배포·이미지 버전 롤백은 외부 운영 환경이 필요하다.
 
 ### 테스트 결과
 
@@ -134,16 +134,17 @@ reflex run
 
 | 검사 | 결과 | 근거 |
 |---|---|---|
-| 입력·DB·인증·경쟁 요청·AI mock·MCP·migration·복원 | 로컬 pytest 통과, 59개 | `tests/` |
+| 입력·DB·인증·경쟁 요청·AI mock·MCP·migration·복원 | 로컬 pytest 통과, 60개 | `tests/` |
 | backend 토큰 직렬화 제외·캐시 무효화 | 통과 | `tests/test_state.py` |
-| final prod 빌드·단일 포트·Chromium | 4개 통과 | `tools/verify_app.py --app project --mode prod` |
+| final prod 빌드·단일 포트·Chromium | 5개 통과 | `tools/verify_app.py --app project --mode prod` |
 | midpoint prod 빌드·Chromium | 1개 통과 | `--app midpoint --mode prod` |
-| demo prod 빌드·단원 이벤트·인증·차트 | 2개 통과 | `--app demo --mode prod` |
+| demo prod 빌드·단원 이벤트·인증·차트 | 3개 통과 | `--app demo --mode prod` |
 | Ruff·포맷·Pyright | 로컬 통과 | 루트 품질 명령 |
 | Compose 해석·배포 셸·CI gates | 통과 | `tools/check_deploy.py` |
 | GitHub Actions 원격 실행 | 설정 구현, 원격 미실행 | `.github/workflows/ci.yml` |
 | 실제 모델 API | 미실행, 서버 키·모델 필요 | `services/ai.py` |
-| 외부 Docker/TLS/SSH/롤백 | 미실행, 운영 환경 필요 | `deploy/` |
+| 로컬 Docker 이미지·Caddy TLS/WSS | 통과 | `tools/verify_docker.py` |
+| 외부 TLS/SSH/롤백 | 미실행, 운영 환경 필요 | `deploy/` |
 
 프로덕션 브라우저는 로그인·작성·새로고침·수정·삭제·guest 직접 수정 접근 차단·로그아웃·잘못된 ID·관리자 접근 거부·MCP·페이지네이션·검색을 확인했다. AI는 공급자 mock과 권한/timeout/오래된 결과를 검증했으며 실제 과금 호출은 하지 않았다.
 

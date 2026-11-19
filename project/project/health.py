@@ -1,4 +1,4 @@
-"""Reflex api_transformer를 통해 readiness만 추가하는 ASGI 래퍼."""
+"""Reflex에 readiness와 운영 HTTPS 스킴을 설정하는 ASGI 래퍼."""
 
 import asyncio
 
@@ -7,6 +7,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .services.database import open_session
+from .settings import get_settings
 
 
 def readiness() -> JSONResponse:
@@ -22,10 +23,14 @@ def readiness() -> JSONResponse:
 class HealthCheck:
     def __init__(self, app: ASGIApp):
         self.app = app
+        self.production = get_settings().production
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] == "http" and scope["path"] == "/health/ready":
             response = await asyncio.to_thread(readiness)
             await response(scope, receive, send)
         else:
+            # 운영 앱 포트는 TLS 프록시 뒤의 내부 네트워크에만 노출된다.
+            if self.production and scope["type"] == "http":
+                scope = {**scope, "scheme": "https"}
             await self.app(scope, receive, send)

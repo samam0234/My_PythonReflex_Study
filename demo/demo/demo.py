@@ -3,6 +3,7 @@
 import reflex as rx
 
 from .lessons import (
+    api_board,
     async_lab,
     auth,
     auth_page,
@@ -13,6 +14,7 @@ from .lessons import (
     hello,
     routing,
     structure,
+    todo,
 )
 from .lessons.db_state import DbState
 from .models import FruitRecord  # noqa: F401 - 기존 migration 모델을 보존한다.
@@ -23,9 +25,11 @@ def index() -> rx.Component:
         ("study1 Hello World", "/study1"),
         ("study2 컴포넌트·모듈", "/study2"),
         ("study3 State·Var", "/study3"),
+        ("study3 Todo", "/study3/todo"),
         ("study4 라우팅", "/study4"),
         ("study5 폼 검증", "/study5"),
         ("study6 DB CRUD", "/study6"),
+        ("study6 FastAPI 게시판 연동", "/study6/api-board"),
         ("study7 학습용 인증", "/study7"),
         ("study7 로그인", "/study7/login"),
         ("study11 비동기·TTL 캐시", "/study11"),
@@ -52,12 +56,14 @@ app.add_page(hello.index, route="/study1")
 app.add_page(structure.index, route="/study2")
 app.add_page(structure.data_page, route="/data")
 app.add_page(data.index, route="/study3")
+app.add_page(todo.index, route="/study3/todo")
 app.add_page(routing.index, route="/study4")
 app.add_page(
     routing.detail, route="/study4/post/[lesson_post_id]", on_load=routing.RouteState.load_post
 )
 app.add_page(form.index, route="/study5")
 app.add_page(database.index, route="/study6", on_load=DbState.load_posts)
+app.add_page(api_board.index, route="/study6/api-board", on_load=api_board.ApiBoard.load)
 app.add_page(auth_page.index, route="/study7", on_load=auth.AuthState.load_posts)
 app.add_page(auth.login_page, route="/study7/login")
 app.add_page(async_lab.index, route="/study11")

@@ -121,7 +121,7 @@ class State(rx.State):
 
     @rx.event
     async def load_fruit_fact(self):
-        """`external_api/`(별도 FastAPI 프로세스, 8001번 포트)에 HTTP 요청을
+        """`backend/fruit_api.py`(별도 FastAPI 프로세스, 8001번 포트)에 HTTP 요청을
         보내 지금 보고 있는 과일의 잡학 정보를 가져온다.
 
         `async def` + 중간에 `yield`를 쓰면, 그 시점까지 바뀐 State를
@@ -143,8 +143,7 @@ class State(rx.State):
                 self.fruit_fact = response.json()["fact"]
         except httpx.HTTPError:
             self.fruit_fact = (
-                "정보를 가져오지 못했습니다. "
-                "external_api 서버(8001번 포트)가 실행 중인지 확인하세요."
+                "정보를 가져오지 못했습니다. 과일 API 서버(8001번 포트)가 실행 중인지 확인하세요."
             )
         finally:
             self.fruit_fact_loading = False

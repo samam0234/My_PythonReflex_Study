@@ -3,6 +3,8 @@ import time
 
 import reflex as rx
 
+from .refresh_lab import panel
+
 
 async def fetch_label() -> str:
     await asyncio.sleep(1)
@@ -68,4 +70,6 @@ def index() -> rx.Component:
         rx.text(AsyncState.result),
         rx.text(AsyncState.error, role="alert"),
         rx.text("결과 길이: ", AsyncState.result_length),
+        rx.separator(),
+        panel(),
     )

@@ -41,13 +41,14 @@ def stop_process_tree(pid: int):
         pass
 
 
-def run(app: str, mode: str, build_only: bool):
+def run(app: str, mode: str, build_only: bool, backend_port: int | None = None):
     folder = ROOT / app
     artifacts = ROOT / "artifacts"
     artifacts.mkdir(exist_ok=True)
-    front, back = free_port(), free_port()
-    while back == front:
-        back = free_port()
+    back = backend_port if backend_port is not None else free_port()
+    front = free_port()
+    while front == back:
+        front = free_port()
     with tempfile.TemporaryDirectory(prefix=f"reflex-{app}-verify-") as tmp:
         db = Path(tmp) / "verify.db"
         url = f"http://127.0.0.1:{front}"
@@ -168,5 +169,10 @@ if __name__ == "__main__":
     parser.add_argument("--app", choices=["demo", "midpoint", "project"], default="project")
     parser.add_argument("--mode", choices=["dev", "prod"], default="dev")
     parser.add_argument("--build-only", action="store_true")
+    parser.add_argument("--backend-port", type=int)
     args = parser.parse_args()
-    run(args.app, args.mode, args.build_only)
+    if args.backend_port is not None and (
+        args.mode != "dev" or not 1 <= args.backend_port <= 65535
+    ):
+        parser.error("--backend-port requires dev mode and a port from 1 to 65535")
+    run(args.app, args.mode, args.build_only, args.backend_port)

@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import uuid
@@ -25,7 +26,7 @@ def login(page, app_url, username="demo"):
 
 
 @pytest.mark.skipif(KIND == "demo", reason="게시판 앱 전용")
-def test_login_crud_and_other_owner(page, browser, app_url):
+def test_login_crud_and_other_owner(app_url, page, browser):
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(app_url + "/post/new")
@@ -71,7 +72,7 @@ def test_login_crud_and_other_owner(page, browser, app_url):
 
 
 @pytest.mark.skipif(KIND != "project", reason="최종 앱 전용")
-def test_mcp_readonly_dashboard(page, app_url):
+def test_mcp_readonly_dashboard(app_url, page):
     page.goto(app_url + "/dashboard")
     page.get_by_role("button", name="MCP 연결 확인").click()
     expect(page.locator("#mcp-result")).to_have_text(
@@ -80,7 +81,7 @@ def test_mcp_readonly_dashboard(page, app_url):
 
 
 @pytest.mark.skipif(KIND != "project", reason="최종 앱 전용")
-def test_invalid_id_and_ops_denied(page, app_url):
+def test_invalid_id_and_ops_denied(app_url, page):
     page.goto(app_url + "/post/abc")
     expect(page.get_by_text("게시글을 찾을 수 없습니다.", exact=True)).to_be_visible()
     page.goto(app_url + "/ops")
@@ -92,7 +93,7 @@ def test_invalid_id_and_ops_denied(page, app_url):
 
 
 @pytest.mark.skipif(KIND != "demo", reason="단원 앱 전용")
-def test_lesson_events_forms_and_cache(page, app_url):
+def test_lesson_events_forms_and_cache(app_url, page):
     page.goto(app_url + "/study1")
     for _ in range(3):
         page.get_by_role("button", name="증가", exact=True).click()
@@ -125,7 +126,7 @@ def test_lesson_events_forms_and_cache(page, app_url):
 
 
 @pytest.mark.skipif(KIND != "project", reason="최종 앱 전용")
-def test_pagination_and_search(page, app_url):
+def test_pagination_and_search(app_url, page):
     from project.models import Post
     from project.services.database import open_session
     from sqlmodel import select
@@ -155,7 +156,7 @@ def test_pagination_and_search(page, app_url):
 
 
 @pytest.mark.skipif(KIND != "demo", reason="단원 앱 전용")
-def test_lesson_auth_routing_and_chart(page, app_url):
+def test_lesson_auth_routing_and_chart(app_url, page):
     page.goto(app_url + "/study4/post/abc")
     expect(page.get_by_text("올바른 글 번호가 아닙니다.", exact=True)).to_be_visible()
     page.goto(app_url + "/study7")
@@ -176,3 +177,98 @@ def test_lesson_auth_routing_and_chart(page, app_url):
     page.get_by_role("combobox").click()
     page.get_by_role("option", name="오늘", exact=True).click()
     expect(page.locator(".recharts-bar-rectangle")).to_have_count(1)
+
+
+@pytest.mark.skipif(KIND != "demo", reason="단원 앱 전용")
+def test_todo_and_http_refresh_lab(app_url, page):
+    page.goto(app_url + "/study3/todo")
+    expect(page.get_by_text("할 일이 없습니다.")).to_be_visible()
+    page.get_by_role("button", name="추가").click()
+    expect(page.get_by_role("alert")).to_have_text("할 일을 1~80자로 입력하세요.")
+    page.get_by_placeholder("할 일").fill("노션 항목 검증")
+    page.get_by_role("button", name="추가").click()
+    expect(page.locator("#todo-remaining")).to_have_text("남은 할 일: 1")
+    page.get_by_role("button", name="완료 전환").click()
+    expect(page.locator("#todo-remaining")).to_have_text("남은 할 일: 0")
+    expect(page.get_by_text("완료", exact=True)).to_be_visible()
+    page.get_by_role("button", name="삭제", exact=True).click()
+    expect(page.get_by_text("할 일이 없습니다.")).to_be_visible()
+
+    page.goto(app_url + "/study11")
+    for case, statuses, result in (
+        ("갱신 성공", "401 → 200 → 200", "갱신 후 조회 성공"),
+        ("갱신 거부", "401 → 401", "실습 세션 만료 · 다시 로그인하세요."),
+        ("재요청 거부", "401 → 200 → 401", "실습 세션 만료 · 다시 로그인하세요."),
+    ):
+        page.get_by_role("button", name=case, exact=True).click()
+        expect(page.locator("#refresh-status")).to_have_text(statuses)
+        expect(page.get_by_role("status")).to_have_text(result)
+
+
+@pytest.mark.skipif(KIND != "project", reason="최종 앱 성능 측정")
+def test_record_page_script_transfer(app_url, browser):
+    results = {}
+    for route in ("/", "/dashboard"):
+        context = browser.new_context()
+        try:
+            page = context.new_page()
+            page.goto(app_url + route, wait_until="networkidle")
+            sample = page.evaluate(
+                """() => {
+                    const scripts = performance.getEntriesByType("resource")
+                        .filter(entry => new URL(entry.name).pathname.endsWith(".js"));
+                    return {
+                        scripts: scripts.length,
+                        transfer_bytes: scripts.reduce((total, item) => total + item.transferSize, 0),
+                        encoded_body_bytes: scripts.reduce((total, item) => total + item.encodedBodySize, 0),
+                    };
+                }"""
+            )
+            assert sample["scripts"] > 0
+            assert sample["transfer_bytes"] > 0
+            results[route] = sample
+        finally:
+            context.close()
+    artifact = Path(os.getenv("REFLEX_E2E_ARTIFACTS", "artifacts"))
+    artifact.mkdir(exist_ok=True)
+    (artifact / "browser-script-transfer.json").write_text(
+        json.dumps(results, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+@pytest.mark.skipif(
+    KIND != "demo" or os.getenv("BOARD_V1_VERIFY") != "1", reason="별도 FastAPI 실행 필요"
+)
+def test_v1_board_over_http(app_url, page):
+    page.goto(app_url + "/study6/api-board")
+    status = page.locator("#api-board-status")
+    email = f"{uuid.uuid4().hex[:10]}@example.com"
+    register = page.get_by_role("form", name="가입")
+    register.get_by_placeholder("이메일").fill(email)
+    register.get_by_placeholder("닉네임").fill("연동 실습")
+    register.get_by_placeholder("비밀번호").fill("Test-password-123")
+    register.get_by_role("button").click()
+    expect(status).to_have_text("HTTP 201")
+    login_form = page.get_by_role("form", name="로그인")
+    login_form.get_by_placeholder("이메일").fill(email)
+    login_form.get_by_placeholder("비밀번호").fill("Test-password-123")
+    login_form.get_by_role("button").click()
+    expect(page.get_by_role("button", name="로그아웃")).to_be_visible()
+    create = page.get_by_role("form", name="글 작성")
+    create.get_by_placeholder("제목").fill("연동 글")
+    create.get_by_placeholder("본문").fill("별도 프로세스의 DB에 저장")
+    create.get_by_role("button").click()
+    expect(status).to_have_text("HTTP 201 · 작성 완료")
+    edit = page.get_by_role("form", name="글 수정")
+    edit.locator('input[name="title"]').fill("연동 글 수정")
+    edit.get_by_role("button").click()
+    expect(page.get_by_role("heading", name="연동 글 수정")).to_be_visible()
+    page.get_by_placeholder("댓글", exact=True).fill("연동 댓글")
+    page.get_by_role("button", name="댓글 등록").click()
+    expect(page.get_by_text("연동 댓글", exact=True)).to_be_visible()
+    page.get_by_role("button", name="댓글 삭제").click()
+    expect(status).to_have_text("HTTP 204 · 댓글 삭제 완료")
+    page.get_by_role("button", name="글 삭제").click()
+    expect(status).to_have_text("HTTP 204 · 삭제 완료")
+    page.get_by_role("button", name="로그아웃").click()
+    expect(status).to_have_text("HTTP 204")
