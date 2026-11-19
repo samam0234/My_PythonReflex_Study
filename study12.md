@@ -63,7 +63,16 @@ python tools/verify_app.py --app project --mode prod
 
 실행 계획은 `SCAN post USING INDEX ix_post_created_id`였다. JSON 수치는 직렬화 결과 크기이며 실제 압축 WebSocket 전송량과는 다르다. 측정 조건·원본 결과는 `artifacts/benchmark.json`에 저장한다.
 
-번들은 동일 prod 빌드에서 브라우저 Network의 JS 전송량·캐시·압축 조건을 기록한다. 큰 라이브러리 제거 전후를 재빌드해 비교하고 `.web/`는 직접 수정하지 않는다. 현재 차트 도입 전후의 번들 전송량은 별도 미측정 항목이다.
+### 페이지별 브라우저 번들 측정
+
+`python tools/verify_app.py --app project --mode prod`가 페이지마다 새 Chromium 컨텍스트를 만들고, 같은 프로덕션 빌드에서 네트워크가 잠잠해진 뒤 Resource Timing의 `.js` 리소스를 합산한다. `transferSize`는 응답 헤더를 포함하고 `encodedBodySize`는 전송 인코딩이 적용된 응답 본문 크기다. 결과는 `artifacts/browser-script-transfer.json`에 저장한다. [측정 코드](tests/e2e/test_browser.py)
+
+| 경로 | JS 리소스 수 | 전송 바이트 | 인코딩된 본문 바이트 |
+|---|---:|---:|---:|
+| 목록 `/` | 16 | 244,862 | 240,062 |
+| 통계 및 MCP `/dashboard` | 16 | 365,083 | 360,283 |
+
+대시보드가 초기 방문 시 JS 120,221바이트를 더 전송했다. 두 경로는 차트 외에도 기능이 다르므로 이 차이는 경로 전체의 비용이다. 라이브러리만의 영향을 알려면 같은 경로에서 차트 컴포넌트 유무만 바꾼 두 prod 빌드로 반복한다. 위 수치는 WS 프레임이나 화면 렌더링 시간과 별개의 지표다.
 
 ## 오류 노트
 
@@ -77,7 +86,7 @@ python tools/verify_app.py --app project --mode prod
 - ☐ 목록 20행·본문 미전송·안정 정렬을 확인한다.
 - ☐ [노션 delta 흐름] 실제 WS 프레임과 JSON 측정값의 차이를 설명한다.
 - ☐ 쿼리 계획과 복합 인덱스 migration을 확인한다.
-- ☐ 동일 조건의 p95·표본 수·환경과 번들 미측정 항목을 기록한다.
+- ☐ 동일 조건의 p95·표본 수·환경을 적고, 목록과 대시보드의 실제 JS 전송량을 비교한다.
 
 ## 다음 단계 연결
 
