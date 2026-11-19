@@ -63,6 +63,18 @@ app.add_page(detail, route="/post/[post_id]", on_load=RouteState.load_post)
 
 `/post/1`, `/post/abc`, `/post/999`를 직접 열고 새로고침한다. 이전 글 제목이 오류 화면에 남지 않아야 한다. 기존 [`project/project/project.py`](project/project/project.py)에는 목록·로그인·상세·작성·수정 경로가 등록되어 있다.
 
+### 같은 게시판의 화면 전환 비교
+
+각 저장소의 최종 앱에서 라우트가 등록된 파일을 골랐다. UTF-8 소스에서 공백 줄을 빼고 세며 주석과 import는 포함한다. 전체 앱 크기가 아니라 진입 파일의 규모다. Vue는 `782d1e8`, React는 `1294381`의 로컬 소스를 읽었다.
+
+| 앱 | 라우트 등록 파일과 줄 수 | 작성·수정 접근 및 저장 후 이동 |
+|---|---|---|
+| Reflex | `project/project/project.py` 21줄 | `app.add_page`의 `on_load` 서버 이벤트에서 검사한다. 저장 이벤트가 `rx.redirect`로 상세로 이동시킨다. |
+| Vue | `project/final/src/router/index.ts` 81줄 | Vue Router의 전역 `beforeEach`가 로그인 여부를 검사한다. 로그인 후 원래 주소로 복귀하고, 폼은 `router.push`로 상세를 연다. |
+| React | `TSX_study/final/src/App.tsx` 73줄 | `Routes`의 보호 컴포넌트가 작성을 감싸고, 수정 폼에서 소유권에 따라 `Navigate`를 선택한다. 저장 후 `useNavigate`로 이동한다. |
+
+이 수치에는 React의 레이아웃·오류 경계 등 라우팅 밖의 코드도 포함된다. 서버 쓰기 단계에서 최종 권한 확인을 하는 위치는 각 앱의 구현을 별도로 봐야 한다. [Reflex 진입점](project/project/project.py) · [Vue 라우터](https://github.com/samam0234/My_Vue.js_Study/blob/782d1e8/project/final/src/router/index.ts) · [React 앱](https://github.com/samam0234/My_React_Study/blob/1294381/TSX_study/final/src/App.tsx)
+
 ## 오류 노트
 
 - `post_id` 속성이 없으면 동적 페이지가 앱에 등록되었는지, 이름이 일치하는지 확인한다. 같은 이름의 일반 State 필드를 중복 선언하지 않는다.
@@ -74,6 +86,7 @@ app.add_page(detail, route="/post/[post_id]", on_load=RouteState.load_post)
 - ☐ [노션 학습 목표] 라우팅과 페이지 분리를 구현한다.
 - ☐ [노션 코드 1] `add_page`와 `on_load`의 연결을 설명한다.
 - ☐ [노션 코드 3] `/post/[post_id]` 값을 읽고 유효한 숫자로 검사한다.
+- ☐ [노션 비교 메모] 세 앱의 루트·상세·작성·수정과 접근 검사·저장 후 이동을 소스에서 찾는다.
 - ☐ 잘못된 ID·없는 ID·직접 URL 접근·새로고침을 확인한다.
 
 ## 다음 단계 연결
