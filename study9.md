@@ -55,7 +55,7 @@ reflex run --loglevel debug
 | 비로그인 작성 | 로그인으로 이동 | midpoint·final prod E2E 통과 |
 | 타인 글 수정·삭제 | DB 변화 없음 | DB·prod E2E 통과 |
 | 정상 작성·새로고침 | DB 행과 화면 일치 | prod E2E 통과 |
-| 서버 끄기·다시 켜기 | 연결 오류 후 재접속, 저장 데이터 유지 | 미실행 |
+| 서버 컨테이너 교체 | 새 프로세스에서 글 유지·메모리 세션 초기화·재로그인 가능 | 로컬 Docker TLS 검사 통과 |
 
 조사 순서는 재현 입력 저장 → 브라우저 Console/Network → 서버 traceback의 첫 앱 코드 줄 → DB URL·migration 상태 → 최소 재현이다. 한 번에 여러 설정을 바꾸지 않는다.
 
