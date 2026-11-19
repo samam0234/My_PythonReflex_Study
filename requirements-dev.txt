@@ -1,0 +1,8 @@
+-r project/requirements.txt
+pytest==8.4.2
+pytest-asyncio==1.2.0
+pytest-playwright==0.7.1
+playwright==1.55.0
+ruff==0.13.2
+pyright==1.1.405
+PyYAML==6.0.2

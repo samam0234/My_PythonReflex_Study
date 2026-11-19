@@ -1,0 +1,82 @@
+name: reflex-study-ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m venv .venv
+      - run: printf '%s\n' "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: pyright
+      - run: python -m pytest tests --ignore=tests/e2e -q
+      - run: python tools/benchmark.py
+      - run: python tools/check_deploy.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark
+          path: artifacts/benchmark.json
+  browser:
+    needs: quality
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [demo, midpoint, project]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m venv .venv
+      - run: printf '%s\n' "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - run: python -m playwright install --with-deps chromium
+      - run: python tools/verify_app.py --app ${{ matrix.app }} --mode prod
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-${{ matrix.app }}
+          path: |
+            artifacts/
+            test-results/
+  deploy:
+    needs: browser
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+    environment: production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
+      APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish verified image and deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/${repo}:${GITHUB_SHA}"
+          test -n "$APP_DOMAIN"
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build --build-arg "PUBLIC_API_URL=https://${APP_DOMAIN}" -t "$image" project
+          docker push "$image"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          key_file=$(mktemp)
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s\n' "$SSH_KEY" > "$key_file"
+          chmod 600 "$key_file"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i "$key_file" -o StrictHostKeyChecking=yes "$DEPLOY_TARGET" "/srv/reflex/deploy.sh '$image'"
