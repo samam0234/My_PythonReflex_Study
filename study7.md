@@ -1,126 +1,165 @@
-# study7 (고급2) — 데이터베이스 연동 (실습)
+# study7 — 로그인·세션·권한의 기초
 
-study6까지 `self.fruits`는 서버 프로세스가 재시작되면 초기값으로 리셋되는 **메모리 상의 데이터**였습니다. 이번 단계에서 진짜 데이터베이스(SQLite)에 저장하도록 바꿉니다.
+목표: 학습용 로그인을 만들고 페이지 진입과 DB 변경 양쪽에 권한 검사를 둔다.
 
-```
-- [x] Reflex 프로젝트 생성과 실행
-- [x] State 클래스로 화면 상태 관리
-- [x] 이벤트 핸들러로 CRUD
-- [x] 라우팅 / 페이지 분리
-- [x] FastAPI 또는 Django API와 연동 가능성 확인
-- [ ] 배포 (도커 또는 Reflex 클라우드)     (study9~10 예정)
-```
+실제 구현: [demo/demo/lessons/auth.py](demo/demo/lessons/auth.py), [demo/demo/lessons/auth_page.py](demo/demo/lessons/auth_page.py). `demo/`에서 실행 후 `/study7`로 접속한다. 설치·검증 명령은 [README](README.md)를 따른다.
 
-대응 실습: 신규 [`demo/demo/models.py`](./demo/demo/models.py) / 변경 [`state.py`](./demo/demo/state.py), [`rxconfig.py`](./demo/rxconfig.py), [`demo.py`](./demo/demo/demo.py) / 신규 `demo/alembic/` (마이그레이션)
+## 📖 이론
 
----
+인증은 누구인지 확인하고, 인가는 그 사용자가 해당 글을 바꿔도 되는지 확인한다. 수정 버튼 숨기기는 UI 처리이며 서버 권한 검사를 대신하지 않는다. 작성자 이름은 입력 폼에서 받지 않고 서버가 확인한 사용자에서 정한다.
 
-## 1. 중요: `rx.Model`은 지원 종료(deprecated)되었다
+Reflex 연결 식별자는 사용자 인증 토큰과 같지 않다. 아래는 서버 State에만 로그인 이름을 둔 **학습용 세션**이다. 재시작·상태 만료 시 다시 로그인한다. 노션·기존 `project/`도 데모 계정 딕셔너리 방식이다. 운영용 DB 사용자·비밀번호 해시·만료·폐기는 study16에서 구현한다.
 
-인터넷에 있는 예전 Reflex 튜토리얼 다수가 `class Fruit(rx.Model, table=True): ...`처럼 `rx.Model`을 씁니다. 하지만 이 저장소가 쓰는 Reflex 0.9.11에서 `rx.Model`을 상속하면 다음 경고가 뜹니다.
+## 🛠️ 실기(코드·줄별 설명)
 
-```
-DeprecationWarning: reflex.Model — Directly use database ORM layer, like sqlalchemy or SQLModel
-```
-
-그래서 이 문서는 **SQLModel을 직접** 씁니다. Reflex는 모델 정의에 관여하지 않고, `rx.session()`으로 "설정 파일(`rxconfig.py`)의 `db_url`에 연결된 세션"만 대신 만들어줍니다.
+study6의 인증 전 `DbState`를 아래 **독립된 AuthState로 교체**하는 학습 예제다. 이전의 무인증 CRUD State를 함께 import·등록해 두지 않는다. 진입점도 `DbState` 대신 `AuthState`를 사용한다. 아래 코드는 `state.py` 전체 예제다.
 
 ```python
-# demo/models.py
-import sqlmodel
+from typing import Any
+import reflex as rx
+from .models import Post
+from sqlmodel import select
 
-class FruitRecord(sqlmodel.SQLModel, table=True):
-    id: int | None = sqlmodel.Field(default=None, primary_key=True)
-    name: str
-    in_stock: bool = True
-```
+DEMO_USERS = {"demo": "reflex123", "guest": "guest123"}
 
-## 2. DB 설정 및 마이그레이션 명령어
+class AuthState(rx.State):
+    posts: list[dict[str, str]] = []
+    error: str = ""
 
-```python
-# rxconfig.py
-config = rx.Config(
-    app_name="demo",
-    db_url="sqlite:///reflex.db",   # 이 한 줄이 없으면 db_url이 None
-    ...
-)
-```
+    @rx.event
+    def load_posts(self):
+        with rx.session() as session:
+            rows = session.exec(select(Post).order_by(Post.created_at.desc(), Post.id.desc())).all()
+            self.posts = [
+                {"id": str(p.id), "title": p.title, "content": p.content,
+                 "author": p.author, "created_at": p.created_at.isoformat()}
+                for p in rows
+            ]
 
-```bash
-pip install sqlmodel alembic     # requirements.txt에도 추가
-reflex db init                   # alembic 초기화 + 첫 마이그레이션 스크립트 자동 생성
-reflex db migrate                # 마이그레이션 적용 → reflex.db 파일 생성, 테이블 생성
-```
+    _username: str = ""
+    login_error: str = ""
 
-- `reflex db init`: 내부적으로 [Alembic](https://alembic.sqlalchemy.org/)(SQLAlchemy 진영의 마이그레이션 도구)을 초기화합니다. 프로젝트에 `alembic/`, `alembic.ini`가 생기고, 현재 정의된 모델(`FruitRecord`)을 보고 **첫 마이그레이션 스크립트**(`alembic/versions/xxxx_.py`)를 자동 생성합니다.
-- `reflex db migrate`: 아직 적용되지 않은 마이그레이션들을 실제 DB에 적용합니다 (테이블 생성/변경). 모델을 수정한 뒤에는 `reflex db makemigrations`로 변경분 스크립트를 새로 만들고 다시 `migrate`합니다.
-- `reflex.db`(SQLite 파일)는 `.gitignore`에 이미 포함되어 있어 커밋되지 않습니다. **커밋해야 하는 것은 `alembic/`의 마이그레이션 스크립트**입니다 — 이게 있어야 다른 사람의 컴퓨터에서도 `reflex db migrate` 한 번으로 같은 스키마를 재현할 수 있습니다 (Django의 `migrations/` 폴더와 같은 위치).
+    @rx.var
+    def username(self) -> str:
+        return self._username
 
-## 3. `rx.session()`으로 DB 읽기/쓰기
+    @rx.event
+    def login(self, data: dict[str, Any]):
+        name, password = data.get("username", "").strip(), data.get("password", "")
+        if name not in DEMO_USERS or DEMO_USERS[name] != password:
+            self.login_error = "아이디 또는 비밀번호를 확인하세요."
+            return
+        self._username = name
+        self.login_error = ""
+        return rx.redirect("/")
 
-```python
-# state.py
-import sqlmodel
-from .models import FruitRecord
+    @rx.event
+    def logout(self):
+        self._username = ""
+        return rx.redirect("/login")
 
-@rx.event
-def load_fruits(self):
-    with rx.session() as session:
-        records = session.exec(sqlmodel.select(FruitRecord)).all()
-        if not records:
-            records = [FruitRecord(**seed) for seed in SEED_FRUITS]
-            session.add_all(records)
+    @rx.event
+    def require_login(self):
+        if not self._username:
+            return rx.redirect("/login")
+
+    @rx.event
+    def create_post(self, data: dict[str, Any]):
+        if not self._username:
+            return rx.redirect("/login")
+        title, content = data.get("title", "").strip(), data.get("content", "").strip()
+        if not 1 <= len(title) <= 50 or not 1 <= len(content) <= 5000:
+            self.error = "제목·본문 길이를 확인하세요."
+            return
+        with rx.session() as session:
+            session.add(Post(title=title, content=content, author=self._username))
             session.commit()
-            for record in records:
-                session.refresh(record)
-        self.fruits = [record.model_dump() for record in records]
-```
+        self.load_posts()
 
-- `rx.session()`은 `with` 블록 안에서 쓰는 평범한 SQLModel `Session`입니다. `session.exec(select(...))`, `session.add(...)`, `session.commit()` 등 SQLAlchemy/SQLModel 사용법 그대로입니다 — **Reflex 고유 문법이 아닙니다.**
-- 핵심은 마지막 줄입니다: `self.fruits = [record.model_dump() for record in records]`. DB에서 읽은 SQLModel 객체를 **그대로 State에 넣지 않고, `dict`로 변환**해서 넣습니다. 이렇게 하면 `fruit_card`, `fruit_badge` 등 지금까지 만든 컴포넌트를 **한 줄도 안 고치고 그대로 재사용**할 수 있습니다 — study2부터 `fruits`는 항상 "id/name/in_stock을 가진 dict의 리스트"였고, 그 값의 출처가 고정 리스트 → 메모리 State → DB로 바뀌었을 뿐 **모양은 그대로**이기 때문입니다.
-
-## 4. CRUD 핸들러 — "원본(DB)을 바꾸고, 캐시(State)를 새로고침"
-
-```python
-@rx.event
-def toggle_stock(self, fruit_id: int):
-    with rx.session() as session:
-        record = session.get(FruitRecord, fruit_id)
-        if record is not None:
-            record.in_stock = not record.in_stock
-            session.add(record)
+    @rx.event
+    def rename_post(self, raw_id: str, title: str):
+        if not self._username:
+            return rx.redirect("/login")
+        if not raw_id.isdecimal() or not 1 <= len(title.strip()) <= 50:
+            return
+        with rx.session() as session:
+            row = session.get(Post, int(raw_id))
+            if row is None or row.author != self._username:
+                self.error = "수정할 수 없습니다."
+                return
+            row.title = title.strip()
+            session.add(row)
             session.commit()
-    self.load_fruits()   # DB를 바꾼 뒤, State를 최신 DB 상태로 다시 채운다
+        self.load_posts()
+
+    @rx.event
+    def delete_post(self, raw_id: str):
+        if not self._username:
+            return rx.redirect("/login")
+        if not raw_id.isdecimal():
+            return
+        with rx.session() as session:
+            row = session.get(Post, int(raw_id))
+            if row is None or row.author != self._username:
+                self.error = "삭제할 수 없습니다."
+                return
+            session.delete(row)
+            session.commit()
+        self.load_posts()
 ```
 
-- study2~6에서는 `self.fruits` 리스트/딕셔너리를 직접 수정하는 것으로 충분했습니다(그 자체가 유일한 데이터였으니까). 이제는 **DB가 진짜 원본**이므로, 순서가 "①DB 수정 → ②`load_fruits()`로 State를 다시 채움"으로 바뀝니다.
-- 같은 클래스 안에서 `self.load_fruits()`처럼 **다른 이벤트 핸들러를 그냥 메서드처럼 호출**할 수 있습니다. 클릭 이벤트 하나로 "DB 갱신 + 화면 갱신"을 순서대로 처리하는 흔한 패턴입니다.
+로그인은 데모 계정을 비교하며 비밀번호를 공개 State에 저장하지 않는다.
 
-## 5. 페이지 로드 시 데이터 채우기 — `on_load`
+| 코드 구간 | 줄별 설명 |
+|---|---|
+| import / 데모 dict | 기존 모델·조회 쿼리를 사용하고 로컬 테스트 계정을 정의한다. |
+| `posts`, `error`, `load_posts` | DB 조회 결과를 화면용 문자열 dict로 만든다. |
+| `_username`, `login_error` | 서버 전용 인증 상태와 사용자 오류를 분리한다. |
+| `@rx.var`, `username` | 표시할 이름만 공개 파생 값으로 제공한다. |
+| `login` 입력 / 조건 / 대입 | 자격을 검증한 뒤 서버 상태를 변경한다. |
+| `logout` | 서버 인증 상태를 폐기한다. |
+| `require_login` | 보호 페이지의 진입을 제한한다. |
+| CRUD 첫 조건 | 이벤트 직접 호출에도 로그인을 재확인한다. |
+| `author=self._username` | 작성자를 서버에서 결정한다. |
+| `get`, `row.author` 조건 | DB 원본으로 소유권을 확인한다. |
+| `commit`, `load_posts` | 승인된 변경만 저장하고 화면을 갱신한다. |
+
+로그인 페이지 함수와 등록 예제는 진입점에서 `AuthState` import 후 추가한다.
 
 ```python
-# demo.py
-app.add_page(index, route="/", on_load=State.load_fruits)
-app.add_page(fruit_detail, route="/fruit/[fruit_id]", on_load=State.load_fruits)
+def login_page() -> rx.Component:
+    return rx.vstack(
+        rx.form(
+            rx.input(name="username", placeholder="아이디"),
+            rx.input(name="password", type="password", placeholder="비밀번호"),
+            rx.button("로그인", type="submit"),
+            on_submit=AuthState.login,
+            reset_on_submit=True,
+        ),
+        rx.text(AuthState.login_error, role="alert"),
+    )
+
+app.add_page(login_page, route="/login")
 ```
 
-- `on_load`는 Vue Router의 네비게이션 가드(`beforeEnter`), React Router의 `loader`와 비슷한 역할입니다: **이 페이지에 진입할 때 자동으로 실행할 이벤트 핸들러**를 지정합니다.
-- 이게 없으면 `self.fruits`는 빈 리스트인 채로 남아있고, 화면에 아무것도 안 뜹니다 — DB 연동 후 흔히 겪는 실수이니 기억해둡니다.
+`name` 두 개가 제출 키를 정하고 `type="password"`는 화면 표시만 가린다. TLS가 전송 보호를 담당한다. `on_submit`으로 로그인하고 제출 후 입력을 비운다. 보호 페이지 등록 시에는 `on_load=AuthState.require_login`을 지정한다.
 
-## 6. 실행 확인
+## 오류 노트
 
-```bash
-cd demo
-pip install -r requirements.txt
-reflex db init      # 최초 1회 (alembic/ 이 이미 있다면 생략)
-reflex db migrate    # 최초 1회 (또는 모델 변경 후)
-reflex run
-```
+- 이름만 일치한다고 로그인시키면 안 된다. 비밀번호가 틀리거나 없는 계정이면 동일한 일반 오류를 표시한다.
+- `on_load` 가드만 두면 이벤트 직접 호출이 남는다. 세 변경 이벤트에 모두 가드가 있어야 한다.
+- 운영에서 평문 데모 dict를 사용하지 않는다. 실제 계정은 study16의 DB·해시·만료 세션으로 전환한다.
+- `rx.Cookie`나 LocalStorage의 임의 사용자 ID를 신뢰하지 않는다. HttpOnly 쿠키로 자동 간주하지도 않는다.
 
-- 브라우저로 `http://localhost:3000/` 접속 → 사과/바나나/포도가 뜨는지 확인 (DB가 비어있었다면 이때 시드 데이터가 자동으로 채워짐)
-- 새 과일을 추가하고, **`reflex run`을 껐다가 다시 실행** → 추가했던 과일이 그대로 남아있는지 확인 (메모리 State였던 study6까지는 재시작하면 사라졌지만, 이제는 DB에 저장되어 유지됨)
-- 터미널에서 `sqlite3 demo/reflex.db "select * from fruitrecord;"` (또는 Python `sqlite3` 모듈)로 실제 테이블에 데이터가 들어있는지 직접 확인
+## ☐ 체크리스트
 
-## 7. 다음 단계 (study8, 고급3 예정)
+- ☐ [노션 로그인 메모] 데모 로그인과 실제 서비스의 DB·비밀번호 해시 요구를 구분한다.
+- ☐ [노션 코드 3] 수정·삭제 전 DB에서 작성자를 다시 확인한다.
+- ☐ [노션 보호 페이지] 비로그인 URL 직접 접근과 이벤트 직접 호출을 차단한다.
+- ☐ demo 계정 글을 guest가 수정·삭제하지 못하는지 확인한다.
+- ☐ 로그아웃 후 이전 수정 이벤트도 거부되는지 확인한다.
+- ☐ 로그인 자격증명을 공개 State·로그에 저장하지 않는다.
 
-- 지금까지는 모든 방문자가 같은 과일 목록을 봤습니다. study8에서 **로그인 상태**를 추가해서, 로그인한 사용자만 접근할 수 있는 "보호된 페이지"를 만듭니다.
+## 다음 단계 연결
+
+[study8](study8.md)에서 인증·DB·UI 책임과 환경설정을 분리한다.
