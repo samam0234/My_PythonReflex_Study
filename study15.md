@@ -86,6 +86,7 @@ jobs:
       - run: python -m venv .venv
       - run: printf '%s\n' "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
       - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - run: python -m pip install -r backend/requirements.txt
       - run: python -m ruff check .
       - run: python -m ruff format --check .
       - run: pyright
@@ -112,6 +113,10 @@ jobs:
       - run: python -m pip install --require-hashes -r requirements-dev.lock
       - run: python -m playwright install --with-deps chromium
       - run: python tools/verify_app.py --app ${{ matrix.app }} --mode prod
+      - if: matrix.app == 'demo'
+        run: |
+          python -m pip install -r backend/requirements.txt
+          python tools/verify_board_v1.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -121,7 +126,7 @@ jobs:
             test-results/
   deploy:
     needs: browser
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
     environment: production
     runs-on: ubuntu-latest
     permissions:
@@ -157,7 +162,7 @@ jobs:
 
 - `quality`는 고정된 Linux 개발 lock으로 설치하고 린트·포맷·타입·단위/DB·성능 검사를 한다.
 - `browser`는 세 앱의 prod 빌드와 브라우저 흐름을 matrix로 검증한다.
-- `deploy`는 matrix 성공, main push, `DEPLOY_ENABLED=true`를 모두 요구한다.
+- `deploy`는 matrix 성공, 저장소 기본 브랜치 push, `DEPLOY_ENABLED=true`를 모두 요구한다.
 - production 비밀 값은 해당 job에서만 주입한다. SSH 호스트 키를 사전에 확인하고 이미지에 SHA 태그를 붙인다.
 - 이 워크플로 파일의 구현과 GitHub 원격 실행 성공은 구분한다. 원격 실행은 저장소에 반영된 뒤 확인해야 한다.
 
