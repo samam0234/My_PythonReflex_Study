@@ -130,16 +130,17 @@ echo '배포 및 DB readiness 확인 완료. 외부 브라우저 smoke test를 �
 ```powershell
 python tools/check_deploy.py
 python tools/verify_app.py --app project --mode prod
+python tools/verify_docker.py
 ```
 
-첫 줄은 자격증명 없이 Compose 해석·CI 의존성·배포 셸 문법을 검사한다. 둘째 줄은 로컬 prod 빌드와 실제 브라우저를 검증한다. Docker daemon이 꺼져 있는 현재 환경에서는 이미지 실행과 외부 VM 배포를 수행하지 않았다.
+첫 줄은 자격증명 없이 Compose 해석·CI 의존성·배포 셸 문법을 검사한다. 둘째 줄은 로컬 prod 빌드와 실제 브라우저를 검증한다. 셋째 줄은 Linux 이미지 빌드, migration, 비루트 UID 10001, Caddy 로컬 TLS/WSS, 글 작성, 백업 무결성, 컨테이너 교체 뒤 DB 보존과 메모리 세션 초기화를 검사한다. 로컬 검사에서는 테스트 인증서만 허용한다. readiness는 동시 8개에서 64/64 응답을 확인했다. 공개 VM·공인 TLS·SSH 배포 및 이미지 버전 롤백은 외부 환경에서 확인한다.
 
 ## 오류 노트
 
 - `.env.runtime`·DB·가상환경·생성 `.web/`는 이미지 context에서 제외한다.
 - runtime 변수만 바꾸어 이미 빌드한 API URL이 교체된다고 가정하지 않는다.
 - 볼륨 UID와 컨테이너 UID를 맞춘다.
-- 페이지는 열리고 이벤트만 실패하면 TLS·API 주소·허용 origin·WebSocket을 확인한다.
+- TLS 프록시 뒤에서 `/login`이 HTTP로 리다이렉트되면 ASGI 요청 스킴을 확인한다. 이 앱은 운영 설정을 근거로 HTTPS 스킴을 지정한다. Reflex 0.9.11의 localhost WSS 재작성에 맞춰 로컬 TLS 검사는 표준 포트 443을 쓴다.
 - Actions production 자격과 `DEPLOY_ENABLED`가 없으면 배포 job은 건너뛴다. 파일 작성은 외부 배포 성공 기록이 아니다.
 
 ## ☐ 체크리스트
