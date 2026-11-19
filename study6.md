@@ -1,130 +1,185 @@
-# study6 (고급1) — Reflex의 FastAPI 기반 구조와 외부 API 연동
+# study6 — SQLModel·Alembic으로 DB CRUD
 
-Notion 학습 목표의 "FastAPI 또는 Django API와 연동 가능성 확인"을 다룹니다. 두 가지를 봅니다: (1) Reflex 백엔드 자체가 FastAPI라는 사실, (2) **완전히 별도로 떠 있는** FastAPI/Django 서버를 이벤트 핸들러에서 호출하는 방법.
+목표: Reflex 이벤트에서 DB의 생성·조회·수정·삭제를 수행하고 새로고침 후에도 데이터를 보존한다.
 
+실제 구현: [demo/demo/lessons/db_state.py](demo/demo/lessons/db_state.py), [demo/demo/lessons/models.py](demo/demo/lessons/models.py). `demo/`에서 실행 후 `/study6`로 접속한다. 설치·검증 명령은 [README](README.md)를 따른다.
+
+## 📖 이론
+
+이 단원은 사용자 요청의 “DB 또는 외부 API” 중 **DB**를 선택한다. 별도 웹 프레임워크를 만들지 않는다. 노션의 `rx.Model` 사용 중단 권고(deprecated) 메모를 반영해 `sqlmodel.SQLModel`을 직접 상속한다. `rx.session()`은 요청마다 열고 닫는 DB 작업 범위다.
+
+DB가 원본이고 State 목록은 화면 표시용 사본이다. 쓰기는 `commit`, 갱신된 ID 읽기는 `refresh`, 화면 재조회는 `load_posts`로 처리한다. 세션을 State 필드나 전역 변수로 보관하지 않는다. 스키마 변경은 Alembic 이력으로 관리한다.
+
+## 🛠️ 실기(코드·줄별 설명)
+
+study0의 독립 실습 앱에서 실행할 명령이다.
+
+```powershell
+python -m pip install "reflex[db]==0.9.11"
 ```
-- [x] Reflex 프로젝트 생성과 실행
-- [x] State 클래스로 화면 상태 관리
-- [x] 이벤트 핸들러로 CRUD
-- [x] 라우팅 / 페이지 분리
-- [x] FastAPI 또는 Django API와 연동 가능성 확인
-- [ ] 배포 (도커 또는 Reflex 클라우드)     (study9~10 예정)
-```
 
-대응 실습: [`demo/demo/state.py`](./demo/demo/state.py)의 `load_fruit_fact`, 신규 [`demo/external_api/`](./demo/external_api) (별도 FastAPI 서버)
-
----
-
-## 1. Reflex 백엔드는 이미 FastAPI다
-
-study0에서 짚었듯, `reflex run`을 실행하면 `http://localhost:8000`에 **백엔드**가 뜹니다. 이건 Reflex가 직접 구현한 서버가 아니라 **FastAPI 앱**입니다. 실제로 `app = rx.App()`으로 만든 `app` 객체는 내부에 `app.api`라는 FastAPI 인스턴스를 들고 있어서, 필요하면 일반 FastAPI 라우트를 직접 추가할 수도 있습니다.
+`rxconfig.py`의 최소 설정:
 
 ```python
-# 참고: Reflex 앱에 직접 REST 엔드포인트를 추가하는 방법 (필요할 때만)
+import reflex as rx
+config = rx.Config(app_name="reflex_lab", db_url="sqlite:///reflex.db")
+```
+
+`reflex_lab/models.py`:
+
+```python
+from datetime import datetime, timezone
+import sqlmodel
+
+class Post(sqlmodel.SQLModel, table=True):
+    id: int | None = sqlmodel.Field(default=None, primary_key=True)
+    title: str
+    content: str
+    author: str
+    created_at: datetime = sqlmodel.Field(default_factory=lambda: datetime.now(timezone.utc))
+```
+
+- `datetime`, `timezone`는 UTC 작성 시각을 만든다.
+- `sqlmodel`은 모델·필드·쿼리를 제공한다.
+- `table=True`는 클래스가 실제 테이블임을 선언한다.
+- `id`의 `None`은 저장 전 상태이며 DB가 기본키를 할당한다.
+- `title`, `content`, `author`는 문자열 컬럼이다.
+- `default_factory`는 각 행을 생성할 때 새 시각을 계산한다.
+
+`reflex_lab/state.py`의 전체 로컬 CRUD 예제다. **인증 전 학습용**이며 다음 단원 전에는 외부에 공개하지 않는다.
+
+```python
+from typing import Any
+import reflex as rx
+from sqlmodel import select
+from .models import Post
+
+class DbState(rx.State):
+    posts: list[dict[str, str]] = []
+    error: str = ""
+
+    @rx.event
+    def load_posts(self):
+        with rx.session() as session:
+            rows = session.exec(select(Post).order_by(Post.created_at.desc(), Post.id.desc())).all()
+            self.posts = [
+                {"id": str(p.id), "title": p.title, "content": p.content,
+                 "author": p.author, "created_at": p.created_at.isoformat()}
+                for p in rows
+            ]
+
+    @rx.event
+    def create_post(self, data: dict[str, Any]):
+        title, content = data.get("title", "").strip(), data.get("content", "").strip()
+        if not 1 <= len(title) <= 50 or not 1 <= len(content) <= 5000:
+            self.error = "제목·본문 길이를 확인하세요."
+            return
+        with rx.session() as session:
+            post = Post(title=title, content=content, author="learner")
+            session.add(post)
+            session.commit()
+            session.refresh(post)
+        self.error = ""
+        self.load_posts()
+
+    @rx.event
+    def rename_post(self, raw_id: str, title: str):
+        if not raw_id.isdecimal() or not 1 <= len(title.strip()) <= 50:
+            self.error = "ID·제목을 확인하세요."
+            return
+        with rx.session() as session:
+            row = session.get(Post, int(raw_id))
+            if row is None:
+                self.error = "없는 글입니다."
+                return
+            row.title = title.strip()
+            session.add(row)
+            session.commit()
+        self.load_posts()
+
+    @rx.event
+    def delete_post(self, raw_id: str):
+        if not raw_id.isdecimal():
+            return
+        with rx.session() as session:
+            row = session.get(Post, int(raw_id))
+            if row is not None:
+                session.delete(row)
+                session.commit()
+        self.load_posts()
+```
+
+| 구간 | 줄별 역할 |
+|---|---|
+| import 3줄 | 상태 API·쿼리·모델을 연결한다. |
+| `posts`, `error` | 직렬화 가능한 화면 데이터와 오류를 선언한다. |
+| `load_posts`, `with`, `select` | 세션을 열고 최신순·ID순으로 조회한다. |
+| dict 각 키 / comprehension | ID·날짜를 문자열로 바꿔 세션 밖에서 쓸 데이터를 만든다. |
+| `create_post` 입력·조건 | 저장 전 서버 길이 검증을 한다. |
+| `Post`, `add`, `commit`, `refresh` | 새 행을 저장하고 DB 생성 값을 읽는다. |
+| `error`, `load_posts` | 성공 표시와 목록을 갱신한다. |
+| `rename_post` 조건 / `get` | ID·제목을 검사하고 대상 한 행을 찾는다. |
+| `None` 분기 / 대입 / `commit` | 없는 행은 중단하고 있는 행의 제목을 변경한다. |
+| `delete_post` / `get` / `delete` | ID를 검증해 대상 행을 삭제한다. |
+| 두 메서드의 `load_posts` | 쓰기 후 오래된 화면 사본을 새로 읽는다. |
+
+진입점 `reflex_lab/reflex_lab.py`:
+
+```python
+import reflex as rx
+from .state import DbState
+
+def index() -> rx.Component:
+    return rx.vstack(
+        rx.form(
+            rx.input(name="title", placeholder="제목"),
+            rx.input(name="content", placeholder="본문"),
+            rx.button("등록", type="submit"),
+            on_submit=DbState.create_post,
+        ),
+        rx.text(DbState.error, role="alert"),
+        rx.foreach(DbState.posts, lambda p: rx.hstack(
+            rx.text(p["title"]),
+            rx.button("제목 수정", on_click=DbState.rename_post(p["id"], "수정한 제목")),
+            rx.button("삭제", on_click=DbState.delete_post(p["id"])),
+        )),
+    )
+
 app = rx.App()
-app.add_page(index)
-
-@app.api.get("/api/health")
-def health():
-    return {"status": "ok"}
+app.add_page(index, on_load=DbState.load_posts)
 ```
 
-이 방식은 "Reflex 앱과 완전히 한 몸으로 배포되는 작은 API"가 필요할 때 유용합니다. 하지만 실무에서는 **이미 존재하는 별도의 FastAPI/Django 백엔드**를 Reflex 프론트엔드가 호출하는 경우가 더 흔합니다. 아래에서는 그 시나리오를 실습합니다.
+import는 상태를 연결하고, `form`은 생성 데이터를 제출한다. `foreach`는 조회 결과를 표시하며 각 행 버튼이 해당 ID의 수정·삭제 이벤트를 보낸다. 마지막 줄은 최초 조회를 등록한다.
 
-## 2. 별도 FastAPI 서버 — `external_api/`
+모델이 앱 import 경로에서 읽히는 상태에서 실행한다.
 
-Reflex 앱과 완전히 무관한, 그냥 평범한 FastAPI 프로젝트입니다.
-
-```python
-# demo/external_api/main.py
-from fastapi import FastAPI
-
-app = FastAPI()
-
-FRUIT_FACTS = {
-    "사과": "사과는 장미과 식물로, 배와 가까운 친척이다.",
-    ...
-}
-
-@app.get("/api/fruit-fact/{name}")
-def get_fruit_fact(name: str) -> dict:
-    fact = FRUIT_FACTS.get(name, f"'{name}'에 대한 정보가 아직 등록되지 않았습니다.")
-    return {"name": name, "fact": fact}
-```
-
-```bash
-cd demo
-pip install -r external_api/requirements.txt
-uvicorn external_api.main:app --port 8001
-```
-
-Django라도 URL만 다를 뿐 아래에서 다룰 "Reflex → HTTP 요청 → JSON 응답" 흐름은 동일합니다.
-
-## 3. Reflex 이벤트 핸들러에서 호출하기 — `httpx` + `async`/`yield`
-
-```python
-# state.py
-import httpx
-
-EXTERNAL_API_BASE_URL = "http://127.0.0.1:8001"
-
-fruit_fact: str = ""
-fruit_fact_loading: bool = False
-
-@rx.event
-async def load_fruit_fact(self):
-    self.fruit_fact_loading = True
-    self.fruit_fact = ""
-    yield  # ① 여기까지의 상태(로딩중)를 먼저 브라우저로 보낸다
-
-    name = self.current_fruit["name"]
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{EXTERNAL_API_BASE_URL}/api/fruit-fact/{name}", timeout=5
-            )
-            response.raise_for_status()
-            self.fruit_fact = response.json()["fact"]   # ② 완료 후 다시 갱신
-    except httpx.HTTPError:
-        self.fruit_fact = "정보를 가져오지 못했습니다. external_api 서버가 실행 중인지 확인하세요."
-    finally:
-        self.fruit_fact_loading = False
-```
-
-- **왜 `async def` + `yield`인가?** 이벤트 핸들러가 평범한 `def`이면, "로딩중" 상태로 바꿔도 함수가 끝날 때까지(HTTP 응답이 올 때까지) 브라우저에 아무것도 전송되지 않습니다. `yield`를 쓰면 그 지점까지의 변경사항을 **중간 스냅샷으로 즉시 전송**하고, 이후 코드(HTTP 요청)를 계속 진행합니다. Vue/React에서 `isLoading = true` → `await axios.get(...)` → `isLoading = false`를 쓰던 것과 목적은 같지만, Reflex는 "중간 전송 시점"을 `yield`로 명시적으로 표시해야 합니다.
-- `httpx.AsyncClient`: Reflex 백엔드가 비동기(async) 서버이므로, 여기서 블로킹 방식(`requests` 라이브러리)을 쓰면 그동안 서버 전체가 다른 요청을 처리하지 못합니다. 그래서 비동기 HTTP 클라이언트(`httpx`)를 씁니다.
-- `try`/`except`/`finally`로 **로딩 상태를 항상 정리**합니다. 요청이 실패해도 `fruit_fact_loading`이 `True`로 멈춰있지 않도록 하는, Vue/React에서도 익숙한 패턴입니다.
-
-## 4. 화면에 연결하기
-
-```python
-# pages/fruit_detail.py
-rx.button(
-    "재미있는 사실 보기 (외부 API 호출)",
-    on_click=State.load_fruit_fact,
-    loading=State.fruit_fact_loading,   # rx.button이 로딩 상태를 알아서 스피너로 표시
-),
-rx.cond(State.fruit_fact != "", rx.text(State.fruit_fact)),
-```
-
-- `rx.button`의 `loading` prop에 Var를 연결하면, 값이 `True`인 동안 버튼이 자동으로 스피너+비활성 상태로 바뀝니다. 로딩 UI를 직접 조립할 필요가 없습니다.
-
-## 5. 실행 확인 (두 개의 서버를 동시에 띄움)
-
-```bash
-# 터미널 1
-cd demo
-uvicorn external_api.main:app --port 8001
-
-# 터미널 2
-cd demo
+```powershell
+reflex db init
+reflex db makemigrations --message "create post"
+reflex db migrate
 reflex run
 ```
 
-- `http://localhost:3000/fruit/1`(사과) 접속 → "재미있는 사실 보기" 클릭 → 버튼이 잠깐 로딩 상태였다가 "사과는 장미과 식물로..." 문구가 나타나는지 확인
-- 터미널 1(외부 API)을 끈 상태에서 다시 클릭 → "정보를 가져오지 못했습니다..." 에러 문구가 나타나는지 확인 (예외 처리 확인)
-- 두 서버 모두 각자 다른 포트(`8000` Reflex 백엔드, `8001` 외부 API)에서 독립적으로 떠 있다는 것을 `curl http://localhost:8001/api/fruit-fact/사과`로 직접 확인
+첫 줄은 **Alembic 폴더가 없는 새 앱에서만** 실행한다. 둘째 줄은 변경 파일을 생성하고, 셋째 줄은 이력을 적용한다. 기존 `project/alembic/`를 재초기화하지 않는다. 생성 → 목록 조회 → 제목 수정 → 삭제를 수행하고, 삭제하지 않은 글은 서버 재시작 후에도 남는지 확인한다.
 
-## 6. 다음 단계 (study7, 고급2 예정)
+## 오류 노트
 
-- 지금까지 `self.fruits`는 서버 프로세스가 재시작되면 초기값으로 리셋되는 **메모리 상의 데이터**였습니다. study7에서 Reflex 내장 ORM(`rx.Model`)으로 진짜 데이터베이스에 저장합니다.
+- `no such table`: 모델 import 여부, migration 생성·적용 여부, DB 상대 경로를 확인한다.
+- 날짜 직렬화 오류: ORM 객체 자체를 State로 넘기지 않고 `isoformat()` 등으로 변환한다.
+- `database is locked`: 긴 트랜잭션·동시 쓰기를 확인한다. 네트워크 대기 중 DB 세션을 잡아두지 않는다.
+- 실패한 트랜잭션을 계속 재사용하지 않는다. 컨텍스트 종료로 정리하고 사용자 오류와 서버 로그를 분리한다.
+
+## ☐ 체크리스트
+
+- ☐ [노션 설치 메모] `rx.Model` 대신 `SQLModel`을 직접 상속한다.
+- ☐ [노션 코드 2] `rx.session`, 최신순 조회, 날짜 문자열 변환을 확인한다.
+- ☐ [노션 학습 목표] 이벤트 핸들러로 CRUD 네 동작을 수행한다.
+- ☐ [노션 학습 기록] Alembic 이력을 생성·검토·적용한다.
+- ☐ 서버 재시작 뒤 DB 데이터가 유지되는지 확인한다.
+- ☐ 노션의 외부 프레임워크 API 연결 과제는 [README 범위 기록](README.md#노션-요구사항-대응표)에서 제외 사유를 확인한다.
+
+## 다음 단계 연결
+
+[study7](study7.md)에서 CRUD 이벤트마다 로그인·작성자 권한을 검사한다.
+
+참고: [SQLModel 공식 문서](https://sqlmodel.tiangolo.com/), [Reflex DB 개요](https://reflex.dev/docs/database/overview/).
