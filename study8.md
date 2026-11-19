@@ -114,6 +114,15 @@ def post_form(submit_label: str, on_submit) -> rx.Component:
 - `rx.button(..., on_click=on_submit)`은 저장 이벤트를 연결한다. 여기서 `on_submit`은 함수 인자 이름이며 `rx.form`의 제출 이벤트와 구분한다.
 - 작성·수정 페이지는 `post_form("작성 완료", State.create_post)`, `post_form("수정 완료", State.update_post)`로 같은 함수를 사용한다.
 
+노션의 8000번 충돌 상황은 `demo/`에서 다음과 같이 재현한다.
+
+```powershell
+$env:REFLEX_API_URL = "http://localhost:8001"
+reflex run --backend-port 8001
+```
+
+자동 검증은 저장소 루트에서 `python tools/verify_app.py --app demo --mode dev --backend-port 8001` 또는 `python tools/verify_board_v1.py`로 실행한다. 첫 줄은 브라우저가 이벤트를 보낼 주소를 변경한다. 둘째 줄은 실제 백엔드가 듣는 포트를 맞춘다. 화면 주소는 `http://localhost:3000`이며, `/study1`의 버튼을 눌러 서버 이벤트가 동작하는지 확인한다. 스터디가 끝나면 해당 환경변수를 제거한다.
+
 심화 앱의 [settings.py](project/project/settings.py)는 `.env`를 명시적으로 로드하고 APP_* 변수를 해석한다. 운영에서는 HTTPS·origin을 검사한다. 실제 `.env`는 git 제외하고 예시 파일에는 가짜 값·변수명만 둔다.
 
 ## 오류 노트
