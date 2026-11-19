@@ -1,103 +1,95 @@
-# study5 — 라우팅 / 페이지 분리 (실습5)
+# study5 — 폼·입력·유효성 검사
 
-지금까지는 화면이 `index` 하나였습니다. 이번 단계에서 **목록 페이지**와 **상세 페이지**로 화면을 나누고, URL에 담긴 id로 특정 과일을 보여줍니다.
+목표: 입력을 서버에서 검증하고 실패 메시지와 성공 결과를 화면에 표시한다.
 
-```
-- [x] Reflex 프로젝트 생성과 실행
-- [x] State 클래스로 화면 상태 관리
-- [x] 이벤트 핸들러로 CRUD
-- [x] 라우팅 / 페이지 분리
-- [ ] FastAPI/Django 연동 가능성 확인      (study6 예정)
-```
+실제 구현: [demo/demo/lessons/form.py](demo/demo/lessons/form.py), [midpoint/midpoint/validation.py](midpoint/midpoint/validation.py). `demo/`에서 실행 후 `/study5`로 접속한다. 설치·검증 명령은 [README](README.md)를 따른다.
 
-대응하는 실습 프로젝트: [`demo/`](./demo) (신규: [`pages/fruit_detail.py`](./demo/demo/pages/fruit_detail.py) / 변경: [`state.py`](./demo/demo/state.py), [`components/fruit_card.py`](./demo/demo/components/fruit_card.py), [`demo.py`](./demo/demo/demo.py))
+## 📖 이론
 
----
+`rx.form`은 `name`이 있는 필드 값을 딕셔너리로 모아 `on_submit`에 전달한다. 입력마다 State에 동기화하는 controlled 방식도 있지만 제출 시에만 검증하는 방식은 이벤트 수를 줄이기 쉽다.
 
-## 1. 여러 페이지 등록하기
+브라우저의 `required`와 `max_length`는 사용성을 위한 보조 기능이다. 서버는 공백 제거 후 필수·길이·타입을 다시 검사한다. 이 과정의 게시판 규칙은 제목 1~50자, 본문 1~5000자다. 실패하면 입력을 지우지 않고 오류를 표시한다.
+
+## 🛠️ 실기(코드·줄별 설명)
+
+실습 앱 진입점 전체 예제:
 
 ```python
-# demo.py
-app = rx.App()
-app.add_page(index, route="/")
-app.add_page(fruit_detail, route="/fruit/[fruit_id]")
-```
+from typing import Any
+import reflex as rx
 
-- `app.add_page(컴포넌트_함수, route=경로)`: Vue Router의 `routes: [{ path, component }]`, React Router의 `<Route path element>`에 대응합니다. 다른 점은 **라우터 설정 파일이 따로 없고, `app.add_page`를 호출하는 것 자체가 라우트 등록**이라는 점입니다.
-- `[fruit_id]`처럼 대괄호로 감싼 세그먼트가 **동적 라우트 파라미터**입니다. Next.js의 파일 기반 라우팅 문법(`[id].jsx`)에서 따온 표기법을 그대로 문자열로 씁니다.
+def validate_post(title: str, content: str) -> str:
+    if not 1 <= len(title.strip()) <= 50:
+        return "제목은 1~50자로 입력하세요."
+    if not 1 <= len(content.strip()) <= 5000:
+        return "본문은 1~5000자로 입력하세요."
+    return ""
 
-## 2. 동적 라우트 파라미터 → State 속성으로 자동 주입
+class FormState(rx.State):
+    error: str = ""
+    saved_title: str = ""
 
-`/fruit/[fruit_id]`로 페이지를 등록하면, Reflex는 **`fruit_id`라는 이름의 문자열 속성을 State에 자동으로 추가**합니다. 우리가 직접 선언한 적이 없어도 `self.fruit_id`로 접근할 수 있습니다.
+    @rx.event
+    def submit(self, data: dict[str, Any]):
+        title = data.get("title", "").strip()
+        content = data.get("content", "").strip()
+        self.error = validate_post(title, content)
+        if self.error:
+            return
+        self.saved_title = title
 
-```python
-# state.py
-@rx.var
-def current_fruit(self) -> dict:
-    for fruit in self.fruits:
-        if str(fruit["id"]) == self.fruit_id:
-            return fruit
-    return {"id": 0, "name": "", "in_stock": False}
-```
-
-| Vue Router | React Router | Reflex |
-|---|---|---|
-| `useRoute().params.id` | `useParams().id` | `self.fruit_id` (State 안에서, 자동 주입) |
-
-- 라우트 파라미터는 항상 **문자열**이므로, `self.fruits`의 `id`(정수)와 비교하려면 `str(fruit["id"])`로 맞춰줘야 합니다. 이 실수(타입 불일치)는 Vue/React에서도 흔한 버그이니 낯설지 않을 것입니다.
-- "찾지 못했을 때"를 위해 `{"id": 0, "name": "", "in_stock": False}`라는 **빈 값(sentinel)**을 반환합니다. Reflex의 ComputedVar는 반환 타입이 고정되어야 하므로(`dict`), Python처럼 `None`과 `dict`를 섞어 반환하기보다 **항상 같은 모양의 값**을 반환하는 편이 다루기 쉽습니다.
-
-## 3. 상세 페이지 컴포넌트
-
-```python
-# pages/fruit_detail.py
-def fruit_detail() -> rx.Component:
-    return rx.container(
-        rx.color_mode.button(position="top-right"),
-        rx.vstack(
-            rx.cond(
-                State.current_fruit["name"] != "",
-                rx.vstack(
-                    rx.heading(State.current_fruit["name"], size="8"),
-                    rx.badge(
-                        rx.cond(State.current_fruit["in_stock"], "재고 있음", "품절"),
-                        color_scheme=rx.cond(State.current_fruit["in_stock"], "green", "red"),
-                    ),
-                ),
-                rx.text("해당 id의 과일을 찾을 수 없습니다."),
+def index() -> rx.Component:
+    return rx.vstack(
+        rx.form(
+            rx.vstack(
+                rx.text("제목"),
+                rx.input(name="title", placeholder="제목", required=True, max_length=50),
+                rx.text("본문"),
+                rx.text_area(name="content", placeholder="본문", required=True, max_length=5000),
+                rx.button("저장", type="submit"),
             ),
-            rx.link(rx.button("← 목록으로"), href="/"),
+            on_submit=FormState.submit,
+            reset_on_submit=False,
         ),
+        rx.text(FormState.error, color="red", role="alert"),
+        rx.text("저장된 제목: ", FormState.saved_title),
     )
+
+app = rx.App()
+app.add_page(index)
 ```
 
-- `State.current_fruit["name"] != ""`로 "찾았는지"를 판단합니다 — study0~4에서 계속 강조한 "Var 조건은 `rx.cond`로"라는 원칙이 여기서도 그대로 적용됩니다.
-- `rx.link(..., href="/")`: Vue의 `<router-link to="/">`, React Router의 `<Link to="/">`에 대응합니다. 일반 `<a>` 태그처럼 보이지만, 클릭 시 페이지 전체를 새로고침하지 않고 클라이언트 라우팅으로 이동합니다.
+| 코드 | 줄별 설명 |
+|---|---|
+| `validate_post`의 두 `if` | 공백을 제거한 길이를 확인한다. |
+| 오류 문자열 / 마지막 빈 문자열 | 실패 사유 또는 성공을 나타낸다. |
+| `error`, `saved_title` | 화면용 상태를 선언한다. |
+| `data.get`, `strip` 두 줄 | 누락된 키를 처리하고 입력을 정규화한다. |
+| `self.error`, `if`, `return` | 실패하면 저장 단계로 내려가지 않는다. |
+| `self.saved_title` | 검증 통과 후에만 결과를 변경한다. |
+| `rx.form`, `name` | 입력의 서버 전달 키를 정한다. |
+| `type="submit"`, `on_submit` | 제출 버튼과 이벤트를 연결한다. |
+| `reset_on_submit=False` | 실패 시에도 입력을 유지한다. |
+| `role="alert"` | 오류 메시지를 보조 기술에 알린다. |
 
-## 4. 목록 → 상세로 이동하는 링크
+빈 값, 공백만, 제목 50자·51자, 본문 5000자·5001자를 시험한다. 브라우저 제한을 우회한 데이터도 `validate_post`에서 거절되어야 한다. 비문자열 등 신뢰할 수 없는 원시 이벤트 입력에 대한 엄격한 검증은 study14에서 확장한다.
 
-```python
-# components/fruit_card.py
-rx.link(
-    rx.button("상세", size="1", variant="soft"),
-    href="/fruit/" + fruit["id"].to_string(),
-),
-```
+## 오류 노트
 
-- `fruit["id"]`는 정수 Var이므로 문자열과 `+`로 이어붙이려면 `.to_string()`으로 먼저 문자열 Var로 변환해야 합니다. Var끼리는 이렇게 **명시적으로 타입을 맞춰야** 연산할 수 있습니다 (JS의 암묵적 타입 변환에 의존하지 않도록 Reflex가 강제하는 부분).
+- 제출 데이터가 비어 있으면 `name` 누락을 확인한다.
+- 오류 때 입력이 사라지면 `reset_on_submit` 설정을 확인한다.
+- 버튼이 눌러도 제출되지 않으면 form 밖 배치 또는 `type` 설정을 확인한다.
+- 공개 State에 비밀번호를 넣어 보관하지 않는다. 로그인 제출값은 검증 후 유지하지 않는다.
 
-## 5. 실행 확인
+## ☐ 체크리스트
 
-```bash
-cd demo
-reflex run
-```
+- ☐ [노션 학습 기록] 폼 컴포넌트를 작성·수정 화면에서 재사용할 수 있게 설계한다.
+- ☐ 제목 필수·50자 제한·본문 필수를 서버에서도 확인한다.
+- ☐ 경계값과 공백 입력에서 오류 문구를 확인한다.
+- ☐ 입력 유지와 오류 알림의 접근성을 확인한다.
 
-- `http://localhost:3000/` → 과일 카드마다 "상세" 버튼이 보이는지 확인
-- "상세" 버튼 클릭 → `http://localhost:3000/fruit/1` 같은 주소로 이동하고, 해당 과일의 이름과 재고 배지가 크게 보이는지 확인
-- 주소창에 직접 `http://localhost:3000/fruit/999`(존재하지 않는 id) 입력 → "해당 id의 과일을 찾을 수 없습니다." 문구가 보이는지 확인
-- "← 목록으로" 클릭 → 목록 페이지로 돌아오고, 방금까지의 CRUD 상태(추가/삭제 결과)가 그대로 유지되는지 확인 (같은 서버 세션이므로 State가 공유됨)
+## 다음 단계 연결
 
-## 6. 다음 단계 (study6, 고급1 예정)
+[study6](study6.md)에서 검증된 값을 DB에 저장해 CRUD로 확장한다.
 
-- 지금까지 Reflex 자체 기능만 썼습니다. Reflex 백엔드는 사실 **FastAPI 위에서 동작**한다는 것을 study0에서 짚었는데, study6에서 이 구조를 직접 확인하고 **외부 API(또는 별도 FastAPI/Django 서버)와 연동**하는 방법을 다룹니다.
+참고: [Reflex 폼 레시피](https://reflex.dev/docs/recipes/content/forms/).
