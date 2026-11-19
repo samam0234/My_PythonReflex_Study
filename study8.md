@@ -1,102 +1,138 @@
-# study8 (고급3) — 로그인 상태 관리 (보호된 페이지)
+# study8 — 구조화·재사용·환경변수 분리
 
-지금까지는 모든 방문자가 같은 화면을 봤습니다. 이번 단계에서 **로그인 상태**를 State로 관리하고, 로그인한 사용자만 볼 수 있는 페이지를 만듭니다.
+목표: 실제 게시판에서 페이지·State·모델·공통 컴포넌트·설정을 분리한다.
 
+실제 구현: [midpoint/](midpoint/), [심화 설정](project/project/settings.py), [최종 rxconfig](project/rxconfig.py). 설치·실행은 [README](README.md)를 따른다.
+
+## 📖 이론
+
+페이지는 표시, State는 입력·이벤트·화면 상태, 모델은 저장 구조, 공통 컴포넌트는 반복 UI를 담당한다. 같은 폼을 복사하면 검증·오류·권한 처리가 달라질 수 있으므로 작성·수정에서 재사용한다.
+
+기초 앱은 다음 실제 구조를 사용한다. 심화 구간은 `project/project/services/`, `schemas.py`, `settings.py`로 책임을 더 나눈다.
+
+```text
+midpoint/
+├── rxconfig.py
+├── requirements.txt
+├── .env.example
+├── alembic/versions/
+└── midpoint/
+    ├── midpoint.py
+    ├── models.py
+    ├── validation.py
+    ├── state.py
+    ├── components/post_card.py, post_form.py
+    └── pages/index.py, login.py, post_detail.py, post_new.py, post_edit.py
 ```
-- [x] Reflex 프로젝트 생성과 실행
-- [x] State 클래스로 화면 상태 관리
-- [x] 이벤트 핸들러로 CRUD
-- [x] 라우팅 / 페이지 분리
-- [x] FastAPI 또는 Django API와 연동 가능성 확인
-- [ ] 배포 (도커 또는 Reflex 클라우드)     (study9~10 예정)
-```
 
-> ⚠ **주의**: 이 실습은 "State로 로그인 여부를 표현하고 페이지를 보호한다"는 **개념**을 보여주는 데모입니다. 비밀번호를 코드에 평문으로 두거나(`DEMO_USERS = {"demo": "reflex123"}`) 해시 없이 비교하는 것은 실제 서비스에서는 절대 안 됩니다. 진짜 서비스라면 `passlib`/`bcrypt`로 비밀번호를 해시하고, 사용자 정보를 study7에서 배운 DB에 저장해야 합니다.
+## 🛠️ 실기(코드·줄별 설명)
 
-대응 실습: 신규 [`pages/login.py`](./demo/demo/pages/login.py), [`pages/admin.py`](./demo/demo/pages/admin.py) / 변경 [`state.py`](./demo/demo/state.py), [`demo.py`](./demo/demo/demo.py)
-
----
-
-## 1. 로그인 상태를 State로 표현하기
+실제 기초 앱 설정:
 
 ```python
-# state.py
-DEMO_USERS = {"demo": "reflex123"}  # 데모용. 실서비스는 DB + 해시 필수
+import os
 
-username_input: str = ""
-password_input: str = ""
-login_error: str = ""
-is_logged_in: bool = False
-current_username: str = ""
+import reflex as rx
+from reflex.constants import StateManagerMode
 
-@rx.event
-def login(self):
-    username = self.username_input.strip()
-    if DEMO_USERS.get(username) != self.password_input:
-        self.login_error = "아이디 또는 비밀번호가 올바르지 않습니다."
-        return
-    self.is_logged_in = True
-    self.current_username = username
-    self.password_input = ""
-    return rx.redirect("/admin")
+config = rx.Config(
+    state_manager_mode=StateManagerMode.MEMORY,
+    app_name="midpoint",
+    db_url=os.getenv("REFLEX_DB_URL", "sqlite:///midpoint.db"),
+    api_url=os.getenv("REFLEX_API_URL", "http://localhost:8000"),
+    cors_allowed_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    plugins=[
+        rx.plugins.SitemapPlugin(),
+        rx.plugins.TailwindV4Plugin(),
+        rx.plugins.RadixThemesPlugin(),
+    ],
+)
 ```
 
-- `is_logged_in`은 그냥 `bool` 타입 State 값입니다. Vue의 Pinia 스토어, React의 `Context`/`Zustand`로 로그인 상태를 전역 관리하던 것과 원리는 같습니다 — Reflex에서는 **State 클래스 자체가 이미 전역 스토어**이므로 별도 라이브러리가 필요 없습니다.
-- 이벤트 핸들러가 `return rx.redirect("/admin")`을 반환하면, "이 이벤트가 끝난 뒤 `/admin`으로 이동해라"는 또 다른 이벤트가 이어서 실행됩니다. 로그인 성공 후 리다이렉트하는 흔한 패턴입니다.
+- `os`는 앱의 DB·API 환경변수를 읽는다.
+- `app_name`은 패키지와 진입점 이름 `midpoint`를 선택한다.
+- `state_manager_mode`는 MEMORY를 명시해 서버 상태와 영속 DB를 구분한다.
+- `db_url`은 SQLite 파일을, `api_url`은 브라우저의 서버 접속 주소를 정한다.
+- `cors_allowed_origins`는 허용 출처다. 운영의 `*` 허용을 사용하지 않는다.
+- 플러그인은 Sitemap·Tailwind·Radix 스타일을 생성한다. 생성된 `.web/`를 직접 편집하지 않는다.
 
-## 2. 보호된 페이지 — `on_load`로 접근을 막기
+앱 루트 PowerShell에서 환경변수를 주입한다.
 
-```python
-@rx.event
-def require_login(self):
-    if not self.is_logged_in:
-        return rx.redirect("/login")
-```
-
-```python
-# demo.py
-app.add_page(admin_page, route="/admin", on_load=State.require_login)
-```
-
-| Vue Router | React Router | Reflex |
-|---|---|---|
-| `beforeEnter` 네비게이션 가드 | Protected Route 컴포넌트 / `loader` | 페이지의 `on_load` 이벤트 핸들러 |
-
-- 로그인 안 한 사용자가 주소창에 `/admin`을 직접 입력해도, 페이지가 로드되자마자 `require_login`이 실행되어 `/login`으로 돌려보냅니다.
-- **주의**: 이 방식은 "화면을 보여줄지 말지"를 서버 로직으로 막는 것이지, `/admin` 페이지 자체가 애초에 클라이언트에 전송되지 않는 것은 아닙니다(Reflex 컴파일 구조상 모든 페이지의 컴포넌트 트리는 정적으로 빌드됩니다). 정말 민감한 데이터라면 **화면에 보여줄지 여부뿐 아니라, 그 데이터를 담은 이벤트 핸들러 자체도** `if not self.is_logged_in: return`으로 한 번 더 막아야 합니다.
-
-## 3. 로그인 폼 / 관리자 페이지
-
-```python
-# pages/login.py (핵심)
-rx.input(placeholder="아이디", value=State.username_input, on_change=State.set_username_input),
-rx.input(placeholder="비밀번호", type="password", value=State.password_input, on_change=State.set_password_input),
-rx.button("로그인", on_click=State.login),
-rx.cond(State.login_error != "", rx.text(State.login_error, color="red")),
-```
-
-- study3~4에서 만든 폼 패턴(Controlled Input + 서버 검증 + 에러 메시지)이 로그인 폼에도 **그대로** 재사용됩니다. "새로운 문법"이 아니라 "이미 배운 패턴의 또 다른 사례"라는 점이 중요합니다.
-- `type="password"`: 일반 HTML `<input type="password">`와 동일하게 입력값을 가려줍니다.
-
-## 4. 상태 지속(persist)에 대한 참고
-
-새로고침해도 `is_logged_in`이 유지되는지 궁금할 수 있습니다. Reflex는 브라우저에 토큰(클라이언트 id)을 저장해두고, 같은 토큰으로 재접속하면 서버에 남아있는 State를 이어서 씁니다 — study2에서 확인한 "새로고침해도 과일 목록이 유지된다"와 같은 원리로, 로그인 상태도 **서버 프로세스가 살아있는 동안은** 유지됩니다.
-
-다만 이건 "탭을 껐다 켜도 로그인 유지"나 "여러 기기에서 로그인 공유" 같은 실제 서비스의 요구사항과는 다릅니다. 실제 서비스는 보통 서버 재시작에도 살아남는 **JWT/세션 쿠키**를 씁니다. Reflex는 `rx.Cookie`, `rx.LocalStorage` 타입으로 State 값을 브라우저 쿠키/로컬스토리지에 자동 동기화하는 기능을 제공하므로, 진짜 인증을 구현할 때는 이 타입을 사용하는 것을 검토합니다.
-
-## 5. 실행 확인
-
-```bash
-cd demo
+```powershell
+$env:REFLEX_DB_URL = "sqlite:///midpoint.db"
+$env:REFLEX_API_URL = "http://localhost:8000"
 reflex run
 ```
 
-- `http://localhost:3000/admin` 직접 접속 → 로그인 안 한 상태라면 자동으로 `/login`으로 이동하는지 확인
-- 틀린 비밀번호로 로그인 시도 → 에러 메시지가 뜨는지 확인
-- `demo` / `reflex123`으로 로그인 → `/admin`으로 이동하고 "환영합니다, demo님"이 보이는지 확인
-- "로그아웃" 클릭 → `/login`으로 돌아오는지, 이후 다시 `/admin`에 직접 접속하면 또 `/login`으로 튕기는지 확인
-- 홈 화면(`/`) 우측 상단의 "관리자 페이지" 버튼으로도 진입 가능한지 확인
+두 대입은 현재 프로세스와 자식에게 적용하고 run이 읽는다. 포트를 바꾸면 API URL·허용 화면 origin도 맞춘다. `REFLEX_CORS_ALLOWED_ORIGINS`는 쉼표 구분 문자열이며 JSON 배열 문자열을 넣지 않는다.
 
-## 6. 다음 단계 (study9, 고급4 예정)
+실제 공통 폼:
 
-- 지금까지는 전부 `reflex run`(개발 모드)으로만 확인했습니다. study9에서 **프로덕션 배포를 위한 설정**(환경변수, `reflex export`)을 다룹니다.
+```python
+import reflex as rx
+
+from ..state import State
+
+
+def post_form(submit_label: str, on_submit) -> rx.Component:
+    """새 글 작성/수정 페이지가 공유하는 폼. study5·8에서 배운 컴포넌트
+    분리 + 서버 측 검증 패턴을 그대로 적용했다."""
+    return rx.vstack(
+        rx.input(
+            placeholder="제목 (최대 50자)",
+            name="title",
+            max_length=50,
+            value=State.form_title,
+            on_change=State.set_form_title,
+            width="100%",
+        ),
+        rx.text_area(
+            placeholder="내용",
+            name="content",
+            max_length=5000,
+            value=State.form_content,
+            on_change=State.set_form_content,
+            width="100%",
+            rows="10",
+        ),
+        rx.cond(
+            State.form_error != "",
+            rx.text(State.form_error, color="red", size="2"),
+        ),
+        rx.button(submit_label, on_click=on_submit),
+        spacing="3",
+        width="100%",
+        max_width="480px",
+    )
+```
+
+- import는 UI와 State를 연결한다. 컴포넌트에서 App을 import하지 않는다.
+- `submit_label`, `on_submit`은 호출자가 전달하는 버튼 문구와 저장 콜백이다.
+- 제목·본문은 State의 입력 필드와 명시적 setter에 연결한다.
+- `name`, 길이 제한은 필드 식별·입력 보조다. 서버는 별도 검증을 수행한다.
+- `form_error`는 같은 오류 영역에 표시한다.
+- `rx.button(..., on_click=on_submit)`은 저장 이벤트를 연결한다. 여기서 `on_submit`은 함수 인자 이름이며 `rx.form`의 제출 이벤트와 구분한다.
+- 작성·수정 페이지는 `post_form("작성 완료", State.create_post)`, `post_form("수정 완료", State.update_post)`로 같은 함수를 사용한다.
+
+심화 앱의 [settings.py](project/project/settings.py)는 `.env`를 명시적으로 로드하고 APP_* 변수를 해석한다. 운영에서는 HTTPS·origin을 검사한다. 실제 `.env`는 git 제외하고 예시 파일에는 가짜 값·변수명만 둔다.
+
+## 오류 노트
+
+- `pages → state → services/models` 방향을 지킨다. 하위 컴포넌트에서 App을 import하면 순환 참조가 생긴다.
+- 개발 localhost를 외부 빌드에 넣으면 사용자 컴퓨터를 가리킨다. 배포 URL로 재빌드한다.
+- `.env.example` 복사만으로 모든 임의 변수가 자동 로드되는 것은 아니다. 실제 설정 로더를 확인한다.
+- 설정·플러그인 변경 후 프로세스를 재시작하고 필요한 프론트 자산을 재빌드한다.
+- DB URL·키 원문을 디버그 로그로 출력하지 않는다.
+
+## ☐ 체크리스트
+
+- ☐ [노션 페이지 분리] 목록·로그인·작성·수정과 공통 폼의 책임을 구분한다.
+- ☐ 작성·수정이 같은 검증 함수와 공통 폼을 사용한다.
+- ☐ [노션 환경변수] DB·브라우저 API URL·허용 origin을 환경별로 분리한다.
+- ☐ [노션 포트 경험] 포트 충돌 시 서버 포트와 접속 주소를 함께 수정한다.
+- ☐ MEMORY State·영속 DB·공개 설정·비밀 값을 구분한다.
+- ☐ 실제 환경 파일·비밀번호·토큰을 git·이미지·로그에서 제외한다.
+
+## 다음 단계 연결
+
+[study9](study9.md)에서 분리한 순수 검증 함수와 실제 사용자 흐름을 테스트한다.
