@@ -1,40 +1,51 @@
 import reflex as rx
 
+from ..components.layout import layout
 from ..state import State
 
 
 def login_page() -> rx.Component:
-    return rx.container(
+    return layout(
         rx.vstack(
             rx.heading("로그인", size="7"),
-            rx.text(
-                "데모 계정: demo / reflex123 (또는 guest / guest123)",
-                size="2",
-                color="gray",
-            ),
-            rx.input(
-                placeholder="아이디",
-                value=State.username_input,
-                on_change=State.set_username_input,
+            rx.text("관리자가 발급한 계정으로 로그인하세요.", color="gray"),
+            rx.form(
+                rx.vstack(
+                    rx.text("아이디", as_="label", html_for="username"),
+                    rx.input(
+                        id="username",
+                        name="username",
+                        placeholder="아이디",
+                        custom_attrs={"autoComplete": "username"},
+                        max_length=32,
+                        required=True,
+                        width="100%",
+                    ),
+                    rx.text("비밀번호", as_="label", html_for="password"),
+                    rx.input(
+                        id="password",
+                        name="password",
+                        placeholder="비밀번호",
+                        type="password",
+                        custom_attrs={"autoComplete": "current-password"},
+                        max_length=128,
+                        required=True,
+                        width="100%",
+                    ),
+                    rx.button("로그인", type="submit", loading=State.login_busy, width="100%"),
+                    align="start",
+                    spacing="3",
+                    width="100%",
+                ),
+                on_submit=State.login,
+                reset_on_submit=True,
                 width="100%",
             ),
-            rx.input(
-                placeholder="비밀번호",
-                type="password",
-                value=State.password_input,
-                on_change=State.set_password_input,
-                width="100%",
-            ),
-            rx.button("로그인", on_click=State.login, width="100%"),
-            rx.cond(
-                State.login_error != "",
-                rx.text(State.login_error, color="red", size="2"),
-            ),
-            rx.link(rx.button("← 목록으로", variant="soft"), href="/"),
-            spacing="3",
-            justify="center",
-            min_height="85vh",
-            max_width="320px",
-            margin="0 auto",
-        ),
+            rx.text(State.login_error, role="alert", color="red", id="login-error"),
+            rx.link("목록으로", href="/"),
+            align="start",
+            spacing="4",
+            max_width="400px",
+            margin="2rem auto",
+        )
     )

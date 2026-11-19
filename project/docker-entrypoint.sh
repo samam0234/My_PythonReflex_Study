@@ -1,6 +1,4 @@
 #!/bin/sh
-set -e
-
-reflex db migrate
-
-exec reflex run --env prod --single-port --backend-host 0.0.0.0
+set -eu
+# migration은 deploy.sh의 별도 단계에서 한 번 실행한다.
+exec "$@"

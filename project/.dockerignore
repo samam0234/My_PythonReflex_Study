@@ -1,8 +1,12 @@
 .web
 .states
+.git
+.venv
 __pycache__
 *.pyc
 *.db
-.venv
-.env
+*.db-*
+.env*
 *.zip
+tests
+artifacts
