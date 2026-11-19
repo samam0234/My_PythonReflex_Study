@@ -1,98 +1,84 @@
-# study9 (고급4) — 배포 준비 (환경설정, 프로덕션 빌드)
+# study9 — 테스트·디버깅의 기초
 
-지금까지는 전부 `reflex run`(개발 모드)으로만 실행했습니다. 이번 단계에서 **환경변수로 설정을 분리**하고, **프로덕션 빌드(`reflex export`)** 를 만들어 봅니다. 실제 배포(Docker)는 study10에서 이어집니다.
+목표: 검증 함수의 경계값을 테스트하고 UI·이벤트·DB 오류를 구분해 조사한다.
 
-```
-- [x] Reflex 프로젝트 생성과 실행
-- [x] State 클래스로 화면 상태 관리
-- [x] 이벤트 핸들러로 CRUD
-- [x] 라우팅 / 페이지 분리
-- [x] FastAPI 또는 Django API와 연동 가능성 확인
-- [~] 배포 (도커 또는 Reflex 클라우드) — 환경설정/빌드까지, Docker는 study10
-```
+실제 구현: [tests/test_midpoint_validation.py](tests/test_midpoint_validation.py), [tests/e2e/test_browser.py](tests/e2e/test_browser.py). 설치·검증 명령은 [README](README.md)를 따른다.
 
-대응 실습: [`rxconfig.py`](./demo/rxconfig.py), [`.env.example`](./demo/.env.example), [`state.py`](./demo/demo/state.py)의 `EXTERNAL_API_BASE_URL`
+## 📖 이론
 
----
+단위 테스트는 순수 검증 함수를, DB 테스트는 저장과 권한 처리를, 브라우저 검증은 실제 페이지·WebSocket 이벤트를 확인한다. HTTP 200만으로 클릭·로그인·CRUD 성공을 판단하지 않는다.
 
-## 1. `rx.Config` 필드는 `REFLEX_*` 환경변수로 자동 덮어써진다
+Reflex에서는 Python traceback과 브라우저 콘솔을 같이 봐야 한다. 컴포넌트 생성 단계 오류인지, 서버 이벤트 실행 오류인지, WebSocket 연결 오류인지 먼저 분류한다. 운영 DB와 테스트 DB는 분리한다.
 
-Reflex는 `rxconfig.py`에 쓴 어떤 설정값이든, **`REFLEX_` + 필드명(대문자)** 환경변수로 실행 시점에 덮어쓸 수 있게 이미 만들어놨습니다. 코드를 고치지 않고도 배포 환경마다 다른 값을 줄 수 있습니다.
+## 🛠️ 실기(코드·줄별 설명)
 
-```bash
-REFLEX_DB_URL="postgresql://user:pass@localhost/db" reflex run
-REFLEX_CORS_ALLOWED_ORIGINS="https://my-app.com" reflex run
-```
+기초 게시판의 `midpoint/midpoint/validation.py`에 순수 검증 함수를 구현했다. 이 함수는 UI import 없이 테스트한다.
 
-## 2. `.env` 파일로 관리하기 — `env_file`
-
-매번 커맨드라인에 환경변수를 나열하는 대신, `rxconfig.py`에 `env_file`을 지정하면 `.env` 파일을 자동으로 읽습니다 (`python-dotenv` 필요).
+`tests/test_midpoint_validation.py`:
 
 ```python
-# rxconfig.py
-config = rx.Config(
-    app_name="demo",
-    db_url="sqlite:///reflex.db",
-    env_file=".env",
-    cors_allowed_origins=["*"],   # 운영에서는 실제 도메인만 허용
-    ...
-)
+import pytest
+from midpoint.validation import validate_post
+
+@pytest.mark.parametrize("title,content,valid", [
+    ("제목", "본문", True),
+    (" ", "본문", False),
+    ("가" * 50, "본문", True),
+    ("가" * 51, "본문", False),
+    ("제목", " ", False),
+    ("제목", "가" * 5000, True),
+    ("제목", "가" * 5001, False),
+])
+def test_validate_post(title: str, content: str, valid: bool):
+    assert (validate_post(title, content) == "") is valid
 ```
 
-```bash
-# .env.example (커밋 O — 값 없는 템플릿)
-REFLEX_DB_URL=sqlite:///reflex.db
-REFLEX_CORS_ALLOWED_ORIGINS=*
-EXTERNAL_API_BASE_URL=http://127.0.0.1:8001
+- `pytest`는 테스트 실행·매개변수화를 제공한다.
+- import는 화면을 실행하지 않고 검증 함수만 가져온다.
+- `parametrize`는 입력 두 개와 기대 성공 여부를 각 테스트로 확장한다.
+- 일곱 행은 정상·공백·제목 경계·본문 경계를 확인한다.
+- `assert`는 “오류 없음”과 기대 성공 여부가 같은지 비교한다.
+
+```powershell
+python -m pip install pytest
+python -m pytest tests/test_midpoint_validation.py -q
+reflex run --loglevel debug
 ```
 
-- `.env.example`은 "어떤 환경변수가 필요한지" 보여주는 **템플릿**이라 커밋합니다. 실제 값이 든 `.env`는 `.gitignore`에 추가해서 **절대 커밋하지 않습니다** (Vue/React 프로젝트에서 `.env`를 깃에 올리면 안 되는 것과 같은 이유 — 비밀번호/키가 노출됩니다).
-- `cors_allowed_origins`: 프론트엔드(정적 파일)와 백엔드(API)가 **다른 도메인**에서 서빙될 때, 백엔드가 어떤 출처(origin)의 요청을 허용할지 정합니다. Django의 `CORS_ALLOWED_ORIGINS`, FastAPI의 `CORSMiddleware`와 정확히 같은 개념입니다. 개발 중엔 `"*"`로 편하게 두고, **운영에서는 반드시 실제 프론트 도메인만 명시**해야 합니다.
+첫 줄은 테스트 도구 설치, 둘째 줄은 테스트 실행, 셋째 줄은 이벤트 오류 조사에 필요한 개발 로그 출력이다. 디버그 로그는 로컬에서만 사용하고 비밀번호·토큰을 넣지 않는다.
 
-## 3. "우리 앱만의" 값은 `os.environ`으로 직접
+수동 확인 기록:
 
-`REFLEX_*` 자동 덮어쓰기는 `rx.Config`의 필드에만 적용됩니다. study6에서 만든 `EXTERNAL_API_BASE_URL`처럼 **우리가 직접 정의한 상수**는 평범하게 `os.environ.get(...)`으로 읽습니다.
-
-```python
-# state.py
-import os
-
-EXTERNAL_API_BASE_URL = os.environ.get("EXTERNAL_API_BASE_URL", "http://127.0.0.1:8001")
-```
-
-`env_file`이 로드해둔 값은 프로세스의 환경변수(`os.environ`)에 그대로 들어가므로, `rx.Config`가 아닌 값도 `.env` 파일 하나로 함께 관리할 수 있습니다.
-
-## 4. 프로덕션 빌드 — `reflex export`
-
-```bash
-reflex export --loglevel info
-```
-
-이 명령은:
-
-1. 앱을 **프로덕션 모드**로 컴파일하고 (`reflex run`의 dev 모드는 코드 변경 감지, hot reload 등 개발 편의 기능이 켜져 있어 더 느립니다)
-2. 프론트엔드를 **정적 파일**로 빌드하고 (`frontend.zip`)
-3. 백엔드(Python 앱) 코드를 별도로 묶습니다 (`backend.zip`)
-
-| 산출물 | 내용물 | 배포 방법 |
+| 동작 | 기대 결과 | 관찰 결과 |
 |---|---|---|
-| `frontend.zip` | 순수 HTML/JS/CSS (Next.js 정적 빌드) | Nginx, S3+CloudFront, Vercel 등 **아무 정적 호스팅**에 올리면 끝 |
-| `backend.zip` | Reflex 백엔드(FastAPI) Python 코드 | Python이 실행 가능한 서버에서 `reflex run --env prod --backend-only`(또는 study10의 Docker) |
+| `/post/abc` 직접 접근 | 설명 가능한 오류, traceback 없음 | final prod E2E 통과 |
+| 비로그인 작성 | 로그인으로 이동 | midpoint·final prod E2E 통과 |
+| 타인 글 수정·삭제 | DB 변화 없음 | DB·prod E2E 통과 |
+| 정상 작성·새로고침 | DB 행과 화면 일치 | prod E2E 통과 |
+| 서버 끄기·다시 켜기 | 연결 오류 후 재접속, 저장 데이터 유지 | 미실행 |
 
-- `--frontend-only`, `--backend-only` 옵션으로 둘 중 하나만 뽑을 수도 있습니다.
-- 프론트/백엔드를 **분리 배포**할 경우, 정적 파일 안의 API 호출 주소를 백엔드의 실제 공개 URL로 맞춰야 합니다 — `rxconfig.py`의 `api_url` 필드(역시 `REFLEX_API_URL` 환경변수로 덮어쓰기 가능)가 이 역할을 합니다.
+조사 순서는 재현 입력 저장 → 브라우저 Console/Network → 서버 traceback의 첫 앱 코드 줄 → DB URL·migration 상태 → 최소 재현이다. 한 번에 여러 설정을 바꾸지 않는다.
 
-## 5. 실행 확인
+## 오류 노트
 
-```bash
-cd demo
-reflex export --loglevel info
-```
+| 오류 | 우선 확인 |
+|---|---|
+| Var bool 변환 | 컴포넌트 안 Python 제어문 사용 여부 |
+| 동적 필드 접근 실패 | 라우트 등록·변수 이름 |
+| 테이블 없음 | 실제 연결 DB·migration 적용 |
+| WebSocket 반복 끊김 | API URL·포트·proxy upgrade·허용 origin |
+| UnicodeEncodeError | study0의 두 UTF-8 환경변수 |
 
-- `frontend.zip`, `backend.zip`이 생성되는지, 에러 없이 끝나는지 확인 (본 저장소에서는 두 파일 모두 `.gitignore`의 `*.zip` 규칙으로 커밋되지 않습니다 — 배포 산출물이지 소스가 아니므로)
-- `.env`(예시 값 채운 것)를 만들고 `reflex run`으로 실행 → `REFLEX_CORS_ALLOWED_ORIGINS`를 바꿔보고 실제로 값이 반영되는지 Python REPL에서 `from rxconfig import config; print(config.cors_allowed_origins)`로 확인
+## ☐ 체크리스트
 
-## 6. 다음 단계 (study10, 고급5 예정)
+- ☐ 필수·공백·최대 길이 경계 테스트를 작성하고 결과를 기록한다.
+- ☐ [노션 제약] Var 제어문 오류와 DB 영속성 문제를 재현·설명한다.
+- ☐ 서버 traceback과 브라우저 WebSocket을 함께 확인한다.
+- ☐ 테스트에 운영 DB·실제 비밀번호·유료 API를 사용하지 않는다.
+- ☐ 미실행 항목을 성공으로 표시하지 않는다.
 
-- `reflex export`로 만든 산출물을 실제로 **Docker 이미지**에 담아 실행하는 방법을 다룹니다.
-- Reflex 팀이 제공하는 **Reflex Cloud** 배포도 간단히 살펴봅니다.
+## 다음 단계 연결
+
+[study10](study10.md)에서 테스트를 통과한 앱의 프로덕션 빌드·배포를 확인한다.
+
+참고: [pytest 매개변수화](https://docs.pytest.org/en/stable/how-to/parametrize.html).
