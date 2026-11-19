@@ -6,7 +6,7 @@
 
 ## 📖 이론
 
-이 단원은 사용자 요청의 “DB 또는 외부 API” 중 **DB**를 선택한다. 별도 웹 프레임워크를 만들지 않는다. 노션의 `rx.Model` 사용 중단 권고(deprecated) 메모를 반영해 `sqlmodel.SQLModel`을 직접 상속한다. `rx.session()`은 요청마다 열고 닫는 DB 작업 범위다.
+기초 실습은 **DB에 직접 읽고 쓰는 Reflex 이벤트**로 시작한다. 아래 응용에서는 같은 게시판 흐름을 별도 FastAPI 공통 API에 연결한다. 노션의 `rx.Model` 사용 중단 권고(deprecated) 메모를 반영해 `sqlmodel.SQLModel`을 직접 상속한다. `rx.session()`은 요청마다 열고 닫는 DB 작업 범위다.
 
 DB가 원본이고 State 목록은 화면 표시용 사본이다. 쓰기는 `commit`, 갱신된 ID 읽기는 `refresh`, 화면 재조회는 `load_posts`로 처리한다. 세션을 State 필드나 전역 변수로 보관하지 않는다. 스키마 변경은 Alembic 이력으로 관리한다.
 
@@ -162,6 +162,33 @@ reflex run
 
 첫 줄은 **Alembic 폴더가 없는 새 앱에서만** 실행한다. 둘째 줄은 변경 파일을 생성하고, 셋째 줄은 이력을 적용한다. 기존 `project/alembic/`를 재초기화하지 않는다. 생성 → 목록 조회 → 제목 수정 → 삭제를 수행하고, 삭제하지 않은 글은 서버 재시작 후에도 남는지 확인한다.
 
+### 공통 게시판 API v1 연동
+
+별도 FastAPI가 SQLite를 소유하고, Reflex 이벤트가 HTTP로 호출하는 응용 실습이다. 기존 과일 API는 별도로 실행할 수 있다. API 구현·화면·검증은 다음 파일에 있다. [FastAPI](backend/main.py) · [Reflex 화면](demo/demo/lessons/api_board.py) · [계약 테스트](tests/test_board_v1.py)
+
+```powershell
+python -m pip install -r backend/requirements.txt
+python -m pytest tests/test_board_v1.py -q
+python tools/verify_board_v1.py
+```
+
+첫 줄은 이번 응용에 필요한 서버만 추가한다. 둘째 줄은 임시 DB에서 API 계약을 검사한다. 셋째 줄은 FastAPI와 Reflex를 별도 프로세스로 띄우고 8001번 Reflex 백엔드와 임시 API 포트로 브라우저 연동을 검사한 뒤 종료한다.
+
+직접 사용하려면 저장소 루트에서 `python -m uvicorn backend.main:app --host 127.0.0.1 --port 8011`을 실행한다. 다른 터미널에서 `demo/`로 이동한 뒤 `reflex db migrate`와 `reflex run`을 실행한다. 화면은 `http://localhost:3000/study6/api-board`, OpenAPI 문서는 `http://127.0.0.1:8011/api-docs`다. 기본 DB 파일은 `backend/board-v1.sqlite3`이며 `BOARD_V1_DB`로 바꿀 수 있다. Reflex는 `BOARD_V1_API_URL`로 API 주소를 읽는다.
+
+```python
+result = await self._request(
+    "GET", "/api/posts", params={"q": self.query, "page": self.page, "limit": 10}
+)
+if result is not None:
+    self.rows = result["data"]
+    self.total_pages = result["meta"]["totalPages"]
+```
+
+첫 호출은 검색어와 1부터 시작하는 페이지를 보낸다. 성공하면 `data`로 목록을 그리고 `meta.totalPages`로 이동 범위를 정한다. 글 수정은 `PATCH`, 삭제는 본문 없는 204, 글 생성은 201과 `Location`을 사용한다. 로그인은 한 시간짜리 Bearer 토큰을 받고 Reflex의 서버 전용 State에 둔다. API가 토큰·작성자를 다시 확인하므로 비로그인 작성은 401, 타인 글 변경은 403이다. 오류 본문의 `requestId`와 응답 헤더 `X-Request-Id`도 대조한다. [공통 API 명세](https://app.notion.com/p/3d6d7dec5e2e8139adbfd36dd506c65e)
+
+현재 실습의 FastAPI는 이 저장소에서 독립 실행하는 v1 서버다. 기존 FastAPI 학습 저장소의 `/posts`·`PUT`·폼 로그인 API는 별도 구현으로 유지한다. 이 실습 서버는 루프백에서 공부용으로 실행하며 최종 운영 게시판은 `project/`에 있다.
+
 ## 오류 노트
 
 - `no such table`: 모델 import 여부, migration 생성·적용 여부, DB 상대 경로를 확인한다.
@@ -176,7 +203,7 @@ reflex run
 - ☐ [노션 학습 목표] 이벤트 핸들러로 CRUD 네 동작을 수행한다.
 - ☐ [노션 학습 기록] Alembic 이력을 생성·검토·적용한다.
 - ☐ 서버 재시작 뒤 DB 데이터가 유지되는지 확인한다.
-- ☐ 노션의 외부 프레임워크 API 연결 과제는 [README 범위 기록](README.md#노션-요구사항-대응표)에서 제외 사유를 확인한다.
+- ☐ [노션 조합 과제] FastAPI의 가입·로그인·목록·상세·작성·수정·삭제·댓글을 Reflex 화면에서 연결하고 401·403과 1부터 시작하는 페이지를 검증한다.
 
 ## 다음 단계 연결
 
