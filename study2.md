@@ -1,103 +1,91 @@
-# study2 — State 클래스로 화면 상태 관리 (실습2)
+# study2 — 컴포넌트·모듈·앱의 핵심 구조
 
-study1의 과일 목록은 "그려지기만 하는 고정 데이터"였습니다. 이번 단계에서 그 데이터를 **State 클래스** 안으로 옮겨서 진짜 상태로 만들고, 버튼으로 값을 바꿔봅니다.
+목표: 재사용 컴포넌트를 모듈로 분리하고 App의 페이지 등록까지 연결한다.
 
+실제 구현: [demo/demo/components/notice.py](demo/demo/components/notice.py), [demo/demo/lessons/structure.py](demo/demo/lessons/structure.py). `demo/`에서 실행 후 `/study2`로 접속한다. 설치·검증 명령은 [README](README.md)를 따른다.
+
+## 📖 이론
+
+Reflex의 기본 UI 단위는 컴포넌트다. Python 함수로 여러 컴포넌트를 조합하면 재사용 단위가 된다. 모듈은 `.py` 파일, 패키지는 `__init__.py`를 가진 디렉터리, 앱은 `rx.App` 객체다. 페이지도 컴포넌트를 반환하는 함수지만 URL 등록이라는 역할이 추가된다.
+
+컴포넌트는 필요한 값만 인자로 받게 한다. 데이터 조회·저장과 로그인 여부 판단은 State·서비스에서 수행한다. 고정 Python 데이터에 대한 `if`·`for`와 State Var에 대한 `rx.cond`·`rx.foreach`는 실행 시점이 다르다.
+
+## 🛠️ 실기(코드·줄별 설명)
+
+실습 앱에 다음 구조를 설계한다.
+
+```text
+reflex_lab/
+├── __init__.py
+├── reflex_lab.py
+└── components/
+    ├── __init__.py
+    └── notice.py
 ```
-- [x] Reflex 프로젝트 생성과 실행
-- [x] State 클래스로 화면 상태 관리
-- [ ] 이벤트 핸들러로 CRUD               (study3 예정)
-- [ ] 라우팅 / 페이지 분리                (study5 예정)
-```
 
-대응하는 실습 프로젝트: [`demo/`](./demo) (변경 파일: [`state.py`](./demo/demo/state.py), [`components/fruit_card.py`](./demo/demo/components/fruit_card.py), [`components/fruit_badge.py`](./demo/demo/components/fruit_badge.py), [`components/fruit_list.py`](./demo/demo/components/fruit_list.py))
-
----
-
-## 1. State 클래스 정의
+`components/notice.py`:
 
 ```python
-# demo/state.py
 import reflex as rx
 
-class State(rx.State):
-    fruits: list[dict] = [
-        {"id": 1, "name": "사과", "in_stock": True},
-        {"id": 2, "name": "바나나", "in_stock": False},
-        {"id": 3, "name": "포도", "in_stock": True},
-    ]
+def notice(title: str, *children: rx.Component) -> rx.Component:
+    return rx.box(
+        rx.heading(title, size="4"),
+        *children,
+        border="1px solid #ddd",
+        padding="1rem",
+        width="100%",
+    )
 ```
 
-- `rx.State`를 상속한 클래스의 **타입 어노테이션이 붙은 클래스 속성**은 전부 "상태"로 취급됩니다. (Vue의 `data()`/`ref` 모음, React의 여러 `useState` 호출을 한 클래스로 합쳐놓은 형태)
-- study1에서 모듈 최상단에 있던 `initial_fruits` 리스트가 그대로 `State.fruits`의 기본값이 되었습니다. **모양은 똑같은데 위치만 바뀐 것**이 핵심입니다.
+- `import`는 컴포넌트 생성 함수를 불러온다.
+- `def`의 `title`은 제목 값, `*children`은 가변 개수 자식이다.
+- `return`은 하나의 최상위 컨테이너를 반환한다.
+- `rx.heading`은 함수 인자로 받은 제목을 사용한다.
+- `*children`은 받은 요소를 컨테이너 자식으로 펼친다.
+- `border`, `padding`, `width`는 공통 디자인을 한곳에 둔다.
 
-## 2. 이벤트 핸들러 — `self.속성 = 값`이 곧 리렌더링 트리거
+`reflex_lab.py` 전체 예제:
 
 ```python
-@rx.event
-def toggle_stock(self, fruit_id: int):
-    for fruit in self.fruits:
-        if fruit["id"] == fruit_id:
-            fruit["in_stock"] = not fruit["in_stock"]
+import reflex as rx
+from .components.notice import notice
+
+def index() -> rx.Component:
+    return rx.vstack(
+        notice("안내", rx.text("읽기 전용 컴포넌트입니다.")),
+        notice("다음 학습", rx.link("데이터", href="/data")),
+        padding="2rem",
+    )
+
+def data_page() -> rx.Component:
+    return rx.text("study3에서 상태를 연결합니다.")
+
+app = rx.App()
+app.add_page(index, route="/")
+app.add_page(data_page, route="/data")
 ```
 
-- `@rx.event` 데코레이터가 붙은 메서드만 `on_click` 등에 연결할 수 있는 "이벤트 핸들러"가 됩니다.
-- 메서드 본문은 **평범한 Python 코드**입니다. `self.fruits`는 이 시점엔 진짜 Python list이므로 `for`/`if`를 그대로 씁니다 — study0에서 강조한 "`rx.cond`/`rx.foreach`가 필요한 건 컴포넌트 함수 쪽이지, State 내부 로직이 아니다"라는 원칙이 여기서 확인됩니다.
-- 리스트 안의 dict를 직접 수정(`fruit["in_stock"] = ...`)해도 Reflex가 변경을 감지합니다. Vue의 반응형 배열/객체를 직접 수정해도 화면이 갱신되는 것과 같은 감각입니다 (React처럼 `setFruits([...])`으로 새 배열을 통째로 만들어줄 필요가 없습니다).
+- 첫 줄은 UI API를, 두 번째 줄은 같은 패키지의 모듈을 가져온다.
+- `index`는 같은 함수에 다른 제목·자식을 전달해 두 화면 조각을 만든다.
+- `data_page`는 링크 도착 화면이다.
+- 마지막 세 줄은 앱을 생성하고 두 URL을 등록한다.
 
-## 3. ComputedVar — 파생 값
+실행 후 두 안내 상자가 서로 다른 내용으로 보이고 `/data` 링크가 동작하는지 확인한다. `notice`의 여백 한 줄을 바꾸면 두 상자에 함께 반영되어야 한다.
 
-```python
-@rx.var
-def in_stock_count(self) -> int:
-    return len([f for f in self.fruits if f["in_stock"]])
-```
+## 오류 노트
 
-- `@rx.var`가 붙으면 "다른 상태로부터 계산되는 값"이 됩니다. Vue의 `computed`, React에서 렌더링 중 계산하는 파생값과 같은 역할입니다.
-- `self.fruits`가 바뀔 때마다 자동으로 다시 계산되어 화면에 반영됩니다. 화면 쪽에서는 그냥 `State.in_stock_count`를 값처럼 쓰면 됩니다 (`rx.text("재고 있는 과일: ", State.in_stock_count, "개")`).
+- 상대 import를 쓰는 모듈을 `python reflex_lab.py`로 직접 실행하면 패키지 문맥이 없다. `rxconfig.py`가 있는 위치에서 `reflex run`을 쓴다.
+- `notice`가 진입점의 `app`을 import하고 진입점이 다시 `notice`를 import하면 순환 참조다. 하위 모듈은 App을 가져오지 않는다.
+- `*children` 대신 `children` 자체를 넘기면 튜플을 한 요소처럼 전달할 수 있다.
 
-## 4. `rx.foreach`가 진짜 필요해지는 순간
+## ☐ 체크리스트
 
-study1에서는 `[fruit_card(f) for f in initial_fruits]`처럼 파이썬 for로 반복해도 됐습니다. `initial_fruits`가 **컴포넌트 트리를 만드는 시점에 이미 확정된 값**이었기 때문입니다.
+- ☐ 컴포넌트·페이지·모듈·패키지·App의 책임을 구분한다.
+- ☐ [노션 학습 기록] 페이지와 공통 컴포넌트를 별도 파일로 나눈다.
+- ☐ 제목과 자식을 인자로 받는 컴포넌트를 두 번 사용한다.
+- ☐ 하위 컴포넌트가 진입점 App을 import하지 않는지 확인한다.
 
-`State.fruits`는 다릅니다. 컴포넌트 함수(`fruit_list_practice`)가 실행되는 시점은 "서버가 이 페이지의 화면 구조를 준비하는 시점"이고, 그때는 **어떤 브라우저 세션이 접속해서 fruits 값이 어떻게 바뀌어 있을지 알 수 없습니다.** 그래서:
+## 다음 단계 연결
 
-```python
-rx.foreach(State.fruits, fruit_card)
-```
-
-로 "이 리스트는 나중에(브라우저에서) 실제 값이 정해지면, 각 항목마다 `fruit_card`를 호출해서 반복 렌더링해라"라고 **선언**만 해둡니다. 이때 `fruit_card`에 전달되는 `fruit`은 진짜 dict가 아니라 **아직 값이 없는 Var(자리표시자)** 입니다.
-
-## 5. Var가 되면서 바뀌는 것 — `rx.cond`
-
-`fruit`이 Var가 되면 `fruit["in_stock"]`으로 값을 꺼내는 문법은 study1과 똑같지만, 그 결과 역시 Var이기 때문에 **Python의 `if`로 직접 분기할 수 없습니다.** (`if fruit["in_stock"]: ...`을 쓰면 "아직 정해지지 않은 값에 대해 지금 당장 참/거짓을 판단하라"는 모순된 요청이 되어 에러가 납니다.)
-
-```python
-# study1 (fruit이 진짜 dict일 때) — 지금 당장 판단 가능
-text_decoration = "none" if fruit["in_stock"] else "line-through"
-
-# study2 (fruit이 Var일 때) — "나중에 정해지면 둘 중 하나를 써라"고 선언
-text_decoration = rx.cond(fruit["in_stock"], "none", "line-through")
-```
-
-같은 이유로 `fruit_badge`의 `soldout` 판정도 `rx.cond`로 바꿨고, 값을 반대로 뒤집을 때도 Python의 `not` 대신 Var 연산자인 `~`(`~fruit["in_stock"]`)을 씁니다.
-
-> **정리**: "값이 dict냐 Var냐"에 따라 **같은 문법(`[]`로 꺼내기)이 다른 도구(`if`/`not` vs `rx.cond`/`~`)를 요구**한다는 것이 Reflex 초반 최대 함정입니다. 헷갈리면 "이 컴포넌트 함수가 State 값을 다루고 있는가?"를 먼저 확인하세요.
-
-## 6. 실행 확인
-
-```bash
-cd demo
-reflex run
-```
-
-- `http://localhost:3000` 접속 → "재고 있는 과일: 2개"가 보이는지 확인 (사과, 포도)
-- 바나나 카드의 "토글" 버튼을 누르면 배지가 초록/재고 있음으로 바뀌고, 상단 카운트가 "3개"로 바뀌는지 확인
-- 다시 눌러서 "2개"로 돌아오는지 확인 (State가 서버에 유지되므로 새로고침해도 값이 남아있는지도 확인)
-
-`reflex run`으로 프론트(3000)/백엔드(8000) 서버가 모두 에러 없이 뜨는지, `curl -s http://localhost:8000/ping`이 정상 응답하는지 확인했습니다.
-
-## 7. 다음 단계 (study3 예정)
-
-- 폼 입력으로 새 과일을 **추가**하는 이벤트 핸들러 (Create)
-- 과일을 **삭제**하는 이벤트 핸들러 (Delete)
-- 이름을 수정하는 이벤트 핸들러 (Update) — 지금까지의 "토글"과 합쳐 CRUD 완성
+[study3](study3.md)에서 고정 UI에 State, 파생 값, 목록 변경 이벤트를 연결한다.
