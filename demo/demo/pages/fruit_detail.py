@@ -14,9 +14,7 @@ def fruit_detail() -> rx.Component:
                     rx.heading(State.current_fruit["name"], size="8"),
                     rx.badge(
                         rx.cond(State.current_fruit["in_stock"], "재고 있음", "품절"),
-                        color_scheme=rx.cond(
-                            State.current_fruit["in_stock"], "green", "red"
-                        ),
+                        color_scheme=rx.cond(State.current_fruit["in_stock"], "green", "red"),
                         variant="solid",
                     ),
                     align="start",

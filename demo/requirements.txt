@@ -1,5 +1,4 @@
-reflex==0.9.11
-httpx
-sqlmodel
-alembic
-python-dotenv
+reflex[db]==0.9.11
+sqlmodel==0.0.42
+alembic==1.16.5
+python-dotenv==1.1.1
